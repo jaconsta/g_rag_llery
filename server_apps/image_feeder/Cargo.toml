@@ -1,0 +1,25 @@
+[package]
+name = "image_feeder"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytes = "1.10.1"
+db_storage = { path = "../db_storage" }
+futures-core = "0.3.31"
+futures-util = "0.3.31"
+image = "0.25.8"
+log = "0.4.28"
+minio = "0.3.0"
+serde = { version = "1",  features = ["derive"] }
+rdkafka = { version = "0.38.0", features = ["cmake-build"] }
+reqwest = { version = "0.12.23", features = ["blocking", "json"] }
+simple_logger = "5.0.0"
+thiserror = "2.0.17"
+tokio = { version = "1.47.1", features = ["full"] }
+uuid = { version = "1.18.1", features = ["v4"] }
+serde_json = "1.0.145"
+percent-encoding-rfc3986 = "0.1.3"
+fastembed = "5.2.0"
+derive-getters = "0.5.0"
+base64 = "0.22.1"
