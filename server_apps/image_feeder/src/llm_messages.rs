@@ -133,3 +133,37 @@ pub struct OutputTokensDetails {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SemiStructuredMessage {
+    pub caption: String,
+    pub alt: String,
+    pub theme: String,
+    pub description: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OllamaLlava {
+    pub model: String,
+    #[serde(rename = "created_at")]
+    pub created_at: String,
+    pub response: String,
+    pub done: bool,
+    #[serde(rename = "done_reason")]
+    pub done_reason: String,
+    pub context: Vec<i64>,
+    #[serde(rename = "total_duration")]
+    pub total_duration: i64,
+    #[serde(rename = "load_duration")]
+    pub load_duration: i64,
+    #[serde(rename = "prompt_eval_count")]
+    pub prompt_eval_count: i64,
+    #[serde(rename = "prompt_eval_duration")]
+    pub prompt_eval_duration: i64,
+    #[serde(rename = "eval_count")]
+    pub eval_count: i64,
+    #[serde(rename = "eval_duration")]
+    pub eval_duration: i64,
+}

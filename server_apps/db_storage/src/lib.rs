@@ -40,7 +40,7 @@ async fn create_extensions(conn: &DbConn) -> Result<(), DbError> {
 async fn create_first_tables(conn: &DbConn, should_delete: Option<bool>) -> Result<(), DbError> {
     if should_delete.is_some_and(|f| f) {
         let drop_if_exists_gallery = " DROP TABLE IF EXISTS gallery CASCADE";
-        let drop_if_exists_gallery_emb = " DROP TABLE IF EXISTS gallery_rag_embeddings CASCADE ";
+        let drop_if_exists_gallery_emb = "DROP TABLE IF EXISTS gallery_rag_embeddings CASCADE";
         for drop_query in [drop_if_exists_gallery, drop_if_exists_gallery_emb].into_iter() {
             sqlx::query(drop_query).execute(conn).await.map_err(|e| {
                 eprintln!("{e:?}");
@@ -48,12 +48,14 @@ async fn create_first_tables(conn: &DbConn, should_delete: Option<bool>) -> Resu
             })?;
         }
     }
-    let gallery_embeddings = "
-        CREATE TABLE IF NOT EXISTS gallery_rag_embeddings(
-            id bigserial primary key,
+    let gallery_embeddings = "CREATE TABLE IF NOT EXISTS gallery_rag_embeddings(
+            id bigserial primary key not null,
             path text,
             keywords text[],
             description text, 
+            theme text,
+            img_aria text,
+            img_alt text,
             embedding vector(512) not null,
             created_at timestamptz not null default now()
         )";
@@ -62,6 +64,8 @@ async fn create_first_tables(conn: &DbConn, should_delete: Option<bool>) -> Resu
             id uuid primary key default gen_random_uuid(),
             path text not null, 
             thumbnail_path text, 
+            thumbnail_height int,
+            thumbnail_width int,
             embeddings_id bigint REFERENCES gallery_rag_embeddings(id) ON DELETE CASCADE, 
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()

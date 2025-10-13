@@ -36,6 +36,10 @@ pub enum KafkaConnectionError {
 pub enum LlmRetrievalError {
     #[error("Failed to fetch from OpenAI.")]
     OpenAi,
+    #[error("Failed to fetch from Ollama.")]
+    Ollama,
     #[error("Query returned no results.")]
     NoContent,
+    #[error("Failed to setup custom retrieval model.")]
+    MultimodalSetup,
 }

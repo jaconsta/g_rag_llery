@@ -2,6 +2,7 @@ use std::io::Cursor;
 
 use crate::errors::ImageProcessError;
 use base64::{Engine, engine::general_purpose};
+use derive_getters::Getters;
 use image::{DynamicImage, GenericImageView, ImageFormat};
 use reqwest::blocking::get;
 
@@ -12,6 +13,14 @@ fn into_error(
     log::error!("{e:?}");
 
     err
+}
+
+#[derive(Getters, Clone)]
+pub struct ImageData {
+    pub image: DynamicImage,
+    pub height: u32,
+    pub width: u32,
+    pub aspect_ratio: u32,
 }
 
 pub fn image_load_and_decode(url: &str) -> Result<DynamicImage, ImageProcessError> {
@@ -62,8 +71,8 @@ pub fn image_from_bytes(
 }
 
 /// Webp always
-/// Width kept on 512
-pub fn create_thumbnail(img: &DynamicImage) -> DynamicImage {
+/// Width capped at 512
+pub fn create_thumbnail(img: &DynamicImage) -> ImageData {
     let (mut width, mut height) = img.dimensions();
     let aspect_ratio = width / height;
 
@@ -73,7 +82,12 @@ pub fn create_thumbnail(img: &DynamicImage) -> DynamicImage {
 
     // Resize to 512x512
     let resized: DynamicImage = img.resize(width, height, image::imageops::FilterType::Lanczos3);
-    resized
+    ImageData {
+        image: resized,
+        height: height,
+        width: width,
+        aspect_ratio: aspect_ratio,
+    }
 }
 
 pub fn to_base64(img: &DynamicImage) -> String {
@@ -83,4 +97,15 @@ pub fn to_base64(img: &DynamicImage) -> String {
 
     let img_base64 = general_purpose::STANDARD.encode(img_buf);
     format!("data:image/webp;base64,{}", img_base64)
+}
+
+/// Ollama's model llava does not like the prescriptive data added on `to_base64`, here it
+/// is stripped.
+pub fn to_llava_base64(img: &DynamicImage) -> String {
+    let mut img_buf: Vec<u8> = Vec::new();
+    img.write_to(&mut Cursor::new(&mut img_buf), ImageFormat::WebP)
+        .unwrap();
+
+    let img_base64 = general_purpose::STANDARD.encode(img_buf);
+    img_base64
 }

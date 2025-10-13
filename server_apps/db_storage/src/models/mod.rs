@@ -15,6 +15,8 @@ pub struct Gallery {
     id: Uuid,
     path: String,
     thumbnail_path: Option<String>,
+    thumbnail_height: Option<i32>,
+    thumbnail_width: Option<i32>,
     embeddings_id: Option<i64>,
     created_at: time::OffsetDateTime,
     updated_at: time::OffsetDateTime,
@@ -27,6 +29,8 @@ impl Gallery {
             id: Uuid::nil(),
             path,
             thumbnail_path: None,
+            thumbnail_height: None,
+            thumbnail_width: None,
             embeddings_id: None,
             created_at: now.clone(),
             updated_at: now,
@@ -51,9 +55,9 @@ impl Gallery {
              with inserted_gallery as (
                  insert into gallery(path, created_at, updated_at)
                  values ($1, $2, $3)
-                 returning id, path, created_at, updated_at, embeddings_id, thumbnail_path
+                 returning id, path, embeddings_id, thumbnail_path, thumbnail_width, thumbnail_height, created_at, updated_at
              )
-             select id, path, created_at, updated_at, embeddings_id, thumbnail_path
+             select id, path, created_at, updated_at, embeddings_id, thumbnail_path, thumbnail_width, thumbnail_height
              from inserted_gallery
          "#,
             self.path,
@@ -74,11 +78,15 @@ impl Gallery {
         &self,
         conn: &crate::DbConn,
         thumbnail: &str,
+        height: u32,
+        width: u32,
     ) -> Result<(), QueryError> {
         let _ = sqlx::query!(
-            "UPDATE gallery SET thumbnail_path=$1 where id=$2",
+            "UPDATE gallery SET thumbnail_path=$2, thumbnail_height=$3, thumbnail_width=$4 where id=$1",
+            self.id,
             thumbnail,
-            self.id
+            height as i32,
+            width as i32
         )
         .execute(conn)
         .await
@@ -123,6 +131,12 @@ pub struct GalleryEmbeddings {
     keywords: Vec<String>,
     /// Description provided by the LLM
     description: Option<String>,
+    /// Single word to contextualize the object (Source LLM)
+    theme: Option<String>,
+    /// Image aria label
+    img_aria: Option<String>,
+    /// Image aria alt  
+    img_alt: Option<String>,
     /// Embeddings generated using CLIP
     embedding: Vec<f32>,
 }
@@ -135,6 +149,9 @@ impl GalleryEmbeddings {
             keywords: Vec::new(),
             description: None,
             embedding,
+            theme: None,
+            img_aria: None,
+            img_alt: None,
         }
     }
     pub fn set_keywords(&mut self, keywords: Vec<String>) -> Self {
@@ -208,9 +225,10 @@ impl GalleryEmbeddings {
         conn: &crate::DbConn,
     ) -> Result<Vec<GalleryEmbeddings>, QueryError> {
         let embed_vec = Vector::from(embedding);
+        //  SELECT id, path, keywords, description, embedding
         let mut embeddings_rows = sqlx::query(
             r#"
-              SELECT id, path, keywords, description, embedding
+              SELECT * 
               FROM gallery_rag_embeddings
               ORDER BY embedding <=> $1 LIMIT 10 
           "#,
@@ -245,6 +263,9 @@ impl GalleryEmbeddings {
                 keywords: row.get("keywords"),
                 description: row.get("description"),
                 embedding: row_vec.to_vec(),
+                theme: row.get("theme"),
+                img_aria: row.get("img_aria"),
+                img_alt: row.get("img_alt"),
             });
         }
 
@@ -316,7 +337,9 @@ mod tests {
         let (conn, mut gallery_itm) = create_reg().await;
         let pre_id = gallery_itm.id.clone();
         let gallery_itm = gallery_itm.set_thumbnail("/some/path.jpg".into());
-        let r = gallery_itm.link_thumbnail(&conn, "/some/path.jpg").await;
+        let r = gallery_itm
+            .link_thumbnail(&conn, "/some/path.jpg", 3, 4)
+            .await;
         if let Err(e) = r {
             println!("{e:?}");
             assert!(false);
@@ -370,8 +393,6 @@ mod tests {
         println!("{:?}", embe);
 
         assert!(embe.len() > 1);
-        // gallery_itm.set_embeddings(embe.id);
-        // gallery_itm.link_embeddings(&conn, embe.id).await.unwrap();
     }
 
     #[tokio::test]
