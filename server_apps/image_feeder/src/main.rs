@@ -7,9 +7,7 @@ use db_storage::{
 };
 use embeddings::get_img_embeddings;
 use image::DynamicImage;
-use image_operations::{
-    create_thumbnail, image_from_bytes, image_load_and_decode, to_base64, to_llava_base64,
-};
+use image_operations::{create_thumbnail, image_from_bytes, to_base64, to_llava_base64};
 use llm_messages::SemiStructuredMessage;
 use llm_retrieval::{ImagePrompt, fetch_description, fetch_llava_description};
 use queue::{create_consumer, feeder_protocol};
@@ -36,9 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (feeder_tx, mut feeder_rx) = mpsc::unbounded_channel();
     let (genai_tx, mut genai_rx) = mpsc::unbounded_channel::<(DynamicImage, GalleryEmbeddings)>();
+    let pg_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
+    let kafka_url = std::env::var("KAFKA_SERVER_LISTENER").expect("Missing KAFKA_SERVER_LISTENER");
+    let llm_to_use = std::env::var("USE_LLM_SERVICE").unwrap_or_else(|_| "ollama".into());
 
     tokio::spawn(async move {
-        let feeder_consumer = match create_consumer("localhost:9092") {
+        let feeder_consumer = match create_consumer(&kafka_url) {
             Ok(f) => f,
             Err(_) => todo!(),
         };
@@ -49,8 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
     });
 
-    let pg_url = env!("DATABASE_URL");
-    let db_pool = db_connect(pg_url).await?;
+    let db_pool = db_connect(&pg_url).await?;
     loop {
         tokio::select! {
                     msg = feeder_rx.recv() => {
@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                    let mut img_embeddings = GalleryEmbeddings::new(thumbnail_name.clone(), embeddings);
                    img_embeddings.create(&db_pool).await?;
                    img_gallery
-                       .link_thumbnail(&db_pool, &thumbnail_name, *thumbnail_512p.height(), *thumbnail_512p.width())
+                       .link_thumbnail(&db_pool, &thumbnail_name, *thumbnail_512p.height(), *thumbnail_512p.width(), thumbnail_512p.ratio_as_str())
                        .await?;
                    img_gallery
                        .link_embeddings(&db_pool, img_embeddings.id())
@@ -98,30 +98,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(msg) = genai_rx.recv() => {
                 let ( img_thumbnail, img_embeddings) = msg;
 
-                let ollama_str = to_llava_base64(&img_thumbnail);
-                // let img_str = to_base64(&img_thumbnail);
-                // let img_description = fetch_description(&img_str, ImagePrompt::Description).await?;
-                // let img_tags = fetch_description(&img_str, ImagePrompt::Tags).await?;
-                // let structured_output = fetch_description(&img_str, ImagePrompt::SemiStructured).await?;
-                // let structures = match serde_json::from_str::<SemiStructuredMessage >(&structured_output) {
-                //     Ok(s) => s,
-                //     Err(e) => {
-                //         log::error!("received from LLM {}. \n and error {e:?}", structured_output);
-                //         continue;
-                //     }
-                // };
-                let ollama_structured = fetch_llava_description(&ollama_str, ImagePrompt::SemiStructured).await?;
-                let structures = match serde_json::from_str::<SemiStructuredMessage >(&ollama_structured ) {
+                let structured = match llm_to_use.as_str() {
+                    "openai" => {
+                         let img_str = to_base64(&img_thumbnail);
+                         let structured_output = fetch_description(&img_str, ImagePrompt::SemiStructured).await?;
+                         structured_output
+                    },
+                    _ => {
+                        // Ollama
+                        let ollama_str = to_llava_base64(&img_thumbnail);
+
+                        let ollama_structured = fetch_llava_description(&ollama_str, ImagePrompt::SemiStructured).await?;
+                         ollama_structured
+                    }
+                };
+
+                let structures = match serde_json::from_str::<SemiStructuredMessage>(&structured) {
                     Ok(s) => s,
                     Err(e) => {
-                        log::error!("received from LLM {}. \n and error {e:?}", ollama_structured);
+                        log::error!("received from LLM {}. \n and error {e:?}", structured);
                         continue;
                     }
                 };
 
-                // let tags_split: Vec<String> = img_tags.split(",").map(|f| f.to_string()).collect();
                 img_embeddings
-                    .link_genai_descriptors(&db_pool, &structures.tags, &structures.description)
+                    .link_genai_descriptors(&db_pool, &structures.tags, &structures.description, &structures.theme, &structures.alt, &structures.caption)
                     .await?;
             },
         }

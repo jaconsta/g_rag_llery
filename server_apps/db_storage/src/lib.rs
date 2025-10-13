@@ -39,7 +39,7 @@ async fn create_extensions(conn: &DbConn) -> Result<(), DbError> {
 
 async fn create_first_tables(conn: &DbConn, should_delete: Option<bool>) -> Result<(), DbError> {
     if should_delete.is_some_and(|f| f) {
-        let drop_if_exists_gallery = " DROP TABLE IF EXISTS gallery CASCADE";
+        let drop_if_exists_gallery = "DROP TABLE IF EXISTS gallery CASCADE";
         let drop_if_exists_gallery_emb = "DROP TABLE IF EXISTS gallery_rag_embeddings CASCADE";
         for drop_query in [drop_if_exists_gallery, drop_if_exists_gallery_emb].into_iter() {
             sqlx::query(drop_query).execute(conn).await.map_err(|e| {
@@ -66,6 +66,7 @@ async fn create_first_tables(conn: &DbConn, should_delete: Option<bool>) -> Resu
             thumbnail_path text, 
             thumbnail_height int,
             thumbnail_width int,
+            thumbnail_ratio text,
             embeddings_id bigint REFERENCES gallery_rag_embeddings(id) ON DELETE CASCADE, 
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()

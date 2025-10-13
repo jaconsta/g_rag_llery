@@ -80,13 +80,15 @@ impl Gallery {
         thumbnail: &str,
         height: u32,
         width: u32,
+        ratio: String,
     ) -> Result<(), QueryError> {
         let _ = sqlx::query!(
-            "UPDATE gallery SET thumbnail_path=$2, thumbnail_height=$3, thumbnail_width=$4 where id=$1",
+            "UPDATE gallery SET thumbnail_path=$2, thumbnail_height=$3, thumbnail_width=$4, thumbnail_ratio=$5 where id=$1",
             self.id,
             thumbnail,
             height as i32,
-            width as i32
+            width as i32,
+            ratio 
         )
         .execute(conn)
         .await
@@ -282,15 +284,21 @@ impl GalleryEmbeddings {
         conn: &DbConn,
         keywords: &Vec<String>,
         description: &str,
+        theme: &str,
+        alt: &str,
+        aria: &str,
     ) -> Result<(), QueryError> {
         sqlx::query!(
             r#"
-              UPDATE gallery_rag_embeddings SET keywords=$2, description=$3
+              UPDATE gallery_rag_embeddings SET keywords=$2, description=$3, theme=$4, img_alt=$5, img_aria=$6
               WHERE id=$1
           "#,
             self.id,
             keywords,
-            description
+            description,
+            theme,
+            alt,
+            aria
         )
         .execute(conn)
         .await
@@ -338,7 +346,7 @@ mod tests {
         let pre_id = gallery_itm.id.clone();
         let gallery_itm = gallery_itm.set_thumbnail("/some/path.jpg".into());
         let r = gallery_itm
-            .link_thumbnail(&conn, "/some/path.jpg", 3, 4)
+            .link_thumbnail(&conn, "/some/path.jpg", 3, 4, "portrait".into())
             .await;
         if let Err(e) = r {
             println!("{e:?}");
@@ -406,7 +414,7 @@ mod tests {
 
         let keywords = vec!["newone".to_string(), "newtwo".to_string()];
         let description = "This a new description";
-        embe.link_genai_descriptors(&conn, &keywords, description)
+        embe.link_genai_descriptors(&conn, &keywords, description, "theme", "aria", "alt")
             .await
             .unwrap();
 
