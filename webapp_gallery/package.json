@@ -14,7 +14,8 @@
 		"lint": "prettier --check . && eslint .",
 		"test:e2e": "playwright test",
 		"test": "npm run test:e2e",
-		"generate": "prisma generate"
+		"generate": "prisma generate",
+		"prisma_pull": "prisma db pull && prisma generate"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.2.5",
@@ -44,6 +45,7 @@
 	},
 	"dependencies": {
 		"@prisma/client": "^6.17.1",
-		"minio": "^8.0.6"
+		"minio": "^8.0.6",
+		"uuid": "^13.0.0"
 	}
 }

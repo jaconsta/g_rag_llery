@@ -52,3 +52,11 @@ model image_embeddings {
 
   @@index([embedding])
 }
+
+model user_upload {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filename String
+  filesize Int
+  filehash String
+  user_id  String? @db.Uuid
+}

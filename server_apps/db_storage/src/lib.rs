@@ -77,6 +77,16 @@ async fn create_first_tables(conn: &DbConn, should_delete: Option<bool>) -> Resu
             USING diskann (embedding);
     ";
 
+    let user_upload = "CREATE TABLE IF NOT EXISTS user_upload(
+            id uuid primary key default gen_random_uuid(),
+            filename text not null,
+            filesize int not null,
+            filehash text not null,
+            user_id uuid,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+    )";
+
     // Nice to do
     // Next, create a function that sets the updated_at field to the current timestamp:
     // ```
@@ -95,7 +105,7 @@ async fn create_first_tables(conn: &DbConn, should_delete: Option<bool>) -> Resu
     //     FOR EACH ROW
     //     EXECUTE PROCEDURE set_updated_at();
     // ```
-    for create_query in [gallery_embeddings, gallery, index_gallery_emb].into_iter() {
+    for create_query in [gallery_embeddings, gallery, index_gallery_emb, user_upload].into_iter() {
         sqlx::query(create_query).execute(conn).await.map_err(|e| {
             eprintln!("{e:?}");
             DbError::Migration
