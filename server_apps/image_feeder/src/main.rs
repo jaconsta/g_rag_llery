@@ -27,7 +27,7 @@ mod queue_messages;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::new()
-        .with_level(log::LevelFilter::Trace)
+        .with_level(log::LevelFilter::Debug)
         // .with_threads(true)
         .init()
         .unwrap();
@@ -37,6 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pg_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
     let kafka_url = std::env::var("KAFKA_SERVER_LISTENER").expect("Missing KAFKA_SERVER_LISTENER");
     let llm_to_use = std::env::var("USE_LLM_SERVICE").unwrap_or_else(|_| "ollama".into());
+    let bucket_to_upload = std::env::var("MINIO_RAGGED_BUCKET").unwrap_or_else(|_| "ollama".into());
 
     tokio::spawn(async move {
         let feeder_consumer = match create_consumer(&kafka_url) {
@@ -76,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                        thumbnail_512p.image().write_to(&mut Cursor::new(&mut webp_bytes), image::ImageFormat::WebP);
                    let thumbnail_name = format!("rag-thumbnail/{}.webp", uuid::Uuid::new_v4().to_string());
 
-                   let _ = upload(&thumbnail_name, webp_bytes, Some("rag-upload")).await?;
+                   let _ = upload(&thumbnail_name, webp_bytes, Some(&bucket_to_upload)).await?;
 
                    // Create db records
                    // Fix the path when the proceesed_imaged bucket is done

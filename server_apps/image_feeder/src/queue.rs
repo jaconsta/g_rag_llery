@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 use rdkafka::{
-    ClientConfig, Message,
+    ClientConfig, Message, Offset,
     client::ClientContext,
     consumer::{Consumer, StreamConsumer},
     producer::FutureProducer,
+    util::Timeout,
 };
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -34,11 +37,16 @@ fn create_producer(server_path: &str) -> Result<FutureProducer, MessagingError> 
 }
 
 pub fn create_consumer(server_path: &str) -> Result<StreamConsumer, MessagingError> {
+    let group_id = std::env::var("KAFKA_GROUP_ID").unwrap_or_else(|_| {
+        let group_id = format!("imgfeeder-{}", Uuid::new_v4());
+        log::info!("No kafka group_id provided. using {}", &group_id);
+        group_id
+    });
     Ok(ClientConfig::new()
         .set("bootstrap.servers", server_path)
         .set("enable.partition.eof", "false")
-        .set("group.id", format!("imgfeeder-{}", Uuid::new_v4()))
-        .set_log_level(rdkafka::config::RDKafkaLogLevel::Debug)
+        .set("group.id", group_id)
+        .set_log_level(rdkafka::config::RDKafkaLogLevel::Info)
         .create()
         .map_err(|op| {
             println!("error error error");
@@ -56,6 +64,23 @@ pub async fn feeder_protocol(
         log::error!("{err:?}");
         KafkaConnectionError::Subscribe
     })?;
+    // To retrieve current offset in kafka
+    // kafka-consumer-groups.sh --bootstrap-server <broker_address> --group <group_id> --describe
+    // ie.
+    // kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group imgfeeder-001 --describe
+    // Discussion on: Start consumer at offset given by distance from end
+    // https://github.com/fede1024/rust-rdkafka/issues/156
+    let seek_topic = std::env::var("KAFKA_MINIO_TOPIC").unwrap_or(String::from("minio-topic"));
+    // start a Kafka consumer in Rust from a specific offset.
+    // This one keeps failing to me due to "wrong partition"
+    if let Err(err) = consumer.seek(
+        &seek_topic,
+        0,
+        Offset::Beginning,
+        Timeout::After(Duration::from_secs(5)),
+    ) {
+        log::error!("Error (topic: {seek_topic}) requesting the offset.\n{err:#?}");
+    }
 
     loop {
         let message = consumer
@@ -68,7 +93,13 @@ pub async fn feeder_protocol(
             .detach();
 
         if let Some(key) = message.key() {
-            log::debug!("Received message with key {:#?}", std::str::from_utf8(key));
+            log::debug!(
+                "Received message with Key:{:#?}, Offset:{} , Partition:{}.",
+                std::str::from_utf8(key),
+                message.offset(),
+                message.partition()
+            );
+            // By changing the input vs output buckets this should not be necessary
             if key.starts_with(b"rag-upload/rag-thumbnail") {
                 continue;
             }
