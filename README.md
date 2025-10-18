@@ -1,5 +1,13 @@
 # RAG_UPLOADER
 
+Ever imagine a self hosted system to visualize your memories stored a pictures. That also leverages RAG ideas 
+to characterize them and preserving your privacy.
+
+Here the aim is to create a photo gallery that gives also meaning to each image, allows you search and filter with the
+help of mother technologies.
+
+![First screenshot](static/preview/ragalleryScreenshot_firstData.png)
+
 ## Architecture 
 
 The design is self-hostable with Open AI being an optional dependency in favor of Ollama. 

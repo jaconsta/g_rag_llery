@@ -1,3 +1,5 @@
 /target
 /minio
 /tokenized
+
+*.env
