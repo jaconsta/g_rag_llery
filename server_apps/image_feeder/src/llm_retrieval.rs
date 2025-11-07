@@ -37,8 +37,6 @@ pub async fn fetch_description(
     img_url: &str,
     prompt: ImagePrompt,
 ) -> Result<String, LlmRetrievalError> {
-    // let csv_prompt = "Please provide a list of tags in the format of comma sepparated values for this image. Make it not more than twenty please the expected format `tag1,tag2,tag3`";
-    // let description_prompt = "What is in this image?";
     let body_json = json!({
         "model": "gpt-5-mini",
         "input": [
@@ -89,8 +87,6 @@ pub async fn fetch_llava_description(
     img_base64: &str,
     prompt: ImagePrompt,
 ) -> Result<String, LlmRetrievalError> {
-    // let csv_prompt = "Please provide a list of tags in the format of comma sepparated values for this image. Make it not more than twenty please the expected format `tag1,tag2,tag3`";
-    // let description_prompt = "What is in this image?";
     let body_json = json!({
       "model": "llava:7b",
       "format": "json",
@@ -104,7 +100,6 @@ pub async fn fetch_llava_description(
     let client = reqwest::Client::new();
     let resp = client
         .post(ollava_url)
-        // .header("Content-Type", "application/json")
         .json(&body_json)
         .send()
         .await
@@ -114,6 +109,7 @@ pub async fn fetch_llava_description(
             LlmRetrievalError::Ollama
         })?;
 
+    // Possible str : { "error": String}
     let body = resp.json::<OllamaLlava>().await.map_err(|e| {
         log::error!("Ollama parse {e:#?}");
         LlmRetrievalError::Ollama

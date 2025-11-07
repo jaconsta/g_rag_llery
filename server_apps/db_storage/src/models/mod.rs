@@ -2,9 +2,7 @@ use derive_getters::Getters;
 use futures_util::TryStreamExt;
 use pgvector::Vector;
 use sqlx::Row;
-use std::time::SystemTime;
 use time::OffsetDateTime;
-use time::format_description::well_known::Rfc3339;
 use uuid::Uuid;
 
 use crate::DbConn;
@@ -405,6 +403,7 @@ mod tests {
 
     #[tokio::test]
     async fn it_update_gallery_description() {
+        // This test is flaky because it depends on "it_creates_embeddings"
         let (conn, _) = create_reg().await;
 
         let mut embe = GalleryEmbeddings::new("/some/thumbnail.webp".into(), vec![1.0; 512])
