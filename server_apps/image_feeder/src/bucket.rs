@@ -34,7 +34,8 @@ pub async fn upload(
     bucket: Option<&str>,
 ) -> Result<(), BucketOperationsError> {
     let client = b3_client();
-    let bucket_name = std::env::var("MINIO_BUCKET_NAME").unwrap_or("rag-upload".to_string());
+    // This double thing makes not much sense.
+    let bucket_name = std::env::var("BUCKET_RAGGED_BUCKET").unwrap_or("rag-processed".to_string());
     let bucket = bucket.unwrap_or(&bucket_name);
     client
         .put_object_content(bucket, filename, bytes)

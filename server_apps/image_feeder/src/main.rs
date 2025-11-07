@@ -18,7 +18,7 @@ mod bucket;
 mod embeddings;
 mod errors;
 mod image_operations;
-mod llm_llava;
+// mod llm_llava;
 mod llm_messages;
 mod llm_retrieval;
 mod queue;
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pg_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
     let kafka_url = std::env::var("KAFKA_SERVER_LISTENER").expect("Missing KAFKA_SERVER_LISTENER");
     let llm_to_use = std::env::var("USE_LLM_SERVICE").unwrap_or_else(|_| "ollama".into());
-    let bucket_to_upload = std::env::var("MINIO_RAGGED_BUCKET").unwrap_or_else(|_| "ollama".into());
+    let bucket_to_upload = std::env::var("BUCKET_RAGGED_BUCKET").unwrap_or_else(|_| "ollama".into());
 
     tokio::spawn(async move {
         let feeder_consumer = match create_consumer(&kafka_url) {
@@ -75,12 +75,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                    let mut webp_bytes: Vec<u8> = Vec::new();
                    let _ =
                        thumbnail_512p.image().write_to(&mut Cursor::new(&mut webp_bytes), image::ImageFormat::WebP);
-                   let thumbnail_name = format!("rag-thumbnail/{}.webp", uuid::Uuid::new_v4().to_string());
+                   let thumbnail_name = format!("thumbnail/{}.webp", uuid::Uuid::new_v4().to_string());
 
                    let _ = upload(&thumbnail_name, webp_bytes, Some(&bucket_to_upload)).await?;
 
                    // Create db records
-                   // Fix the path when the proceesed_imaged bucket is done
                    let img_gallery = Gallery::new(msg.filename).create(&db_pool).await?;
 
                    let mut img_embeddings = GalleryEmbeddings::new(thumbnail_name.clone(), embeddings);

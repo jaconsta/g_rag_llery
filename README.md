@@ -211,6 +211,40 @@ To access psql console (Works local only).
 psql -U postgres
 ```
 
+```
+create DATABASE rag_db;
+\c rag_db 
+```
+
+Migrations
+
+There is a migrations folder inside server_apps/db_storage/src/migrations. You can use any program that
+can run them in sequential order, sqlx-cli is recommended.
+
+```
+cargo install sqlx-cli
+```
+
+Run the  migration
+
+```
+cd db_storage
+sqlx migrate run --source src/migrations
+```
+
+Support command (on your own risk)
+
+```
+# Create database
+sqlx database create
+# Drop database
+sqlx database drop
+# Add a new migration file
+sqlx migrate add -r <filename>
+
+```
+
+
 ### Ollama
 
 You need to download Ollama and the Llava model if you want to run the prompts 

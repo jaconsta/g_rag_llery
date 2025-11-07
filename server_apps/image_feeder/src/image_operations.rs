@@ -91,19 +91,19 @@ pub fn create_thumbnail(img: &DynamicImage) -> ImageData {
     }
 }
 
-/// Encodes the given Image into a webp base 64 image.
+/// Encodes the given Image into a png base 64 image.
 /// It also adds the image type prefix to the output
-/// `data:image/webp;base64,`
+/// `data:image/png;base64,`
 pub fn to_base64(img: &DynamicImage) -> String {
     let img_base64 = to_llava_base64(img);
-    format!("data:image/webp;base64,{}", img_base64)
+    format!("data:image/png;base64,{}", img_base64)
 }
 
-/// Encodes the given image into a base64 webp.
+/// Encodes the given image into a base64 Png.
 /// Returns only the base64 content
 pub fn to_llava_base64(img: &DynamicImage) -> String {
     let mut img_buf: Vec<u8> = Vec::new();
-    img.write_to(&mut Cursor::new(&mut img_buf), ImageFormat::WebP)
+    img.write_to(&mut Cursor::new(&mut img_buf), ImageFormat::Png)
         .unwrap();
 
     let img_base64 = general_purpose::STANDARD.encode(img_buf);

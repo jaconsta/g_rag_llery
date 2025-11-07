@@ -103,7 +103,7 @@ pub async fn fetch_llava_description(
 
     let client = reqwest::Client::new();
     let resp = client
-        .post("http://aachen:11434/api/generate") // ollava_url)
+        .post(ollava_url)
         // .header("Content-Type", "application/json")
         .json(&body_json)
         .send()
