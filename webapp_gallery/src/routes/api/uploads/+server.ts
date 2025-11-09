@@ -40,7 +40,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
   try {
     // Then insert
-    await prisma.user_upload.create({ data: { filename: name, filehash: hash, filesize: size, user_id: uuidv4() } });
+    await prisma.user_upload.create({ data: { filename: `feeder/${name}`, filehash: hash, filesize: size, user_id: uuidv4() } });
   } catch (e) {
     console.error("Provided an unsuitable", e);
     return new Response(JSON.stringify({ success: false }), { status: 500, headers: { "Content-type": "application/json" } });

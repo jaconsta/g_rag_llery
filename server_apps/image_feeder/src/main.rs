@@ -3,7 +3,7 @@ use std::io::Cursor;
 use bucket::{download, upload};
 use db_storage::{
     db_connect,
-    models::{Gallery, GalleryEmbeddings},
+    models::{Gallery, GalleryEmbeddings, NewEmbeddings, NewThumbnail, UserUpload},
 };
 use embeddings::get_img_embeddings;
 use image::DynamicImage;
@@ -13,6 +13,8 @@ use llm_retrieval::{ImagePrompt, fetch_description, fetch_llava_description};
 use queue::{create_consumer, feeder_protocol};
 use simple_logger::SimpleLogger;
 use tokio::sync::mpsc;
+
+use crate::bucket::move_to_ragged;
 
 mod bucket;
 mod embeddings;
@@ -36,8 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (genai_tx, mut genai_rx) = mpsc::unbounded_channel::<(DynamicImage, GalleryEmbeddings)>();
     let pg_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
     let kafka_url = std::env::var("KAFKA_SERVER_LISTENER").expect("Missing KAFKA_SERVER_LISTENER");
+    let kafka_topic = std::env::var("KAFKA_MINIO_TOPIC").expect("Missing KAFKA_MINIO_TOPIC");
     let llm_to_use = std::env::var("USE_LLM_SERVICE").unwrap_or_else(|_| "ollama".into());
-    let bucket_to_upload = std::env::var("BUCKET_RAGGED_BUCKET").unwrap_or_else(|_| "ollama".into());
+    let bucket_to_upload =
+        std::env::var("BUCKET_RAGGED_BUCKET").expect("Missing BUCKET_RAGGED_BUCKET");
 
     tokio::spawn(async move {
         let feeder_consumer = match create_consumer(&kafka_url) {
@@ -45,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(_) => todo!(),
         };
 
-        if let Err(_err) = feeder_protocol(feeder_consumer, vec!["minio-topic"], feeder_tx).await {
+        if let Err(_err) = feeder_protocol(feeder_consumer, vec![&kafka_topic], feeder_tx).await {
             log::error!("Error on the feeder");
             panic!();
         };
@@ -54,46 +58,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_pool = db_connect(&pg_url).await?;
     loop {
         tokio::select! {
-                    msg = feeder_rx.recv() => {
-                    let msg = match msg {
-                       Some(m) => m,
-                       None => {
-                           log::debug!("empty message received");
+            msg = feeder_rx.recv() => {
+                let msg = match msg {
+                    Some(m) => m,
+                    None => {
+                        log::debug!("empty message received");
 
-                           panic!();
-                       }
-                   };
-                   log::info!("msg {:?}", msg);
+                        panic!();
+                    }
+                };
+                log::info!("msg {:?}", msg);
 
-                   let file_bytes = download(&msg.filename).await?;
-                   let i = image_from_bytes(&file_bytes)?;
-                   let thumbnail_512p = create_thumbnail(&i);
-                   // Generate embeddings from thumbnail image.
-                   let embeddings = get_img_embeddings(thumbnail_512p.image().clone())?;
+                let file_bytes = download(&msg.filename).await?;
 
-                   // BlobStore thumbnail image.
-                   let mut webp_bytes: Vec<u8> = Vec::new();
-                   let _ =
-                       thumbnail_512p.image().write_to(&mut Cursor::new(&mut webp_bytes), image::ImageFormat::WebP);
-                   let thumbnail_name = format!("thumbnail/{}.webp", uuid::Uuid::new_v4().to_string());
+                // Find the user owner of this image
+                // If the upload record is not found in db. Block the process.
+                let mut user_info = UserUpload::get_by_filename(&db_pool, &msg.filename).await?;
 
-                   let _ = upload(&thumbnail_name, webp_bytes, Some(&bucket_to_upload)).await?;
+                let i = image_from_bytes(&file_bytes)?;
+                let thumbnail_512p = create_thumbnail(&i);
+                // Generate embeddings from thumbnail image.
+                let embeddings = get_img_embeddings(thumbnail_512p.image().clone())?;
 
-                   // Create db records
-                   let img_gallery = Gallery::new(msg.filename).create(&db_pool).await?;
+                // BlobStore thumbnail image.
+                let mut webp_bytes: Vec<u8> = Vec::new();
+                let _ =
+                    thumbnail_512p.image().write_to(&mut Cursor::new(&mut webp_bytes), image::ImageFormat::WebP);
+                let thumbnail_name = format!("thumbnail/{}.webp", uuid::Uuid::new_v4().to_string());
 
-                   let mut img_embeddings = GalleryEmbeddings::new(thumbnail_name.clone(), embeddings);
-                   img_embeddings.create(&db_pool).await?;
-                   img_gallery
-                       .link_thumbnail(&db_pool, &thumbnail_name, *thumbnail_512p.height(), *thumbnail_512p.width(), thumbnail_512p.ratio_as_str())
-                       .await?;
-                   img_gallery
-                       .link_embeddings(&db_pool, img_embeddings.id())
-                       .await?;
+                let _ = upload(&thumbnail_name, webp_bytes, Some(&bucket_to_upload)).await?;
 
-                   if let Err(e) = genai_tx.send((thumbnail_512p.image().clone(), img_embeddings)){
-                       log::error!("Failed to send thumbnail to genai thread\n{e:?}");
-                   }
+                // Create db records
+                let mut img_gallery = Gallery::new(&msg.filename).create(&db_pool).await?;
+                user_info.set_gallery_id(&db_pool, &img_gallery.id()).await?;
+
+                let mut img_embeddings = GalleryEmbeddings::new(thumbnail_name.clone(), embeddings);
+                img_embeddings.create(&db_pool).await?;
+
+                let moved_feeded_img_filepath = move_to_ragged(&msg.filename).await?;
+
+                img_gallery.update_with_processed(&db_pool, &moved_feeded_img_filepath,
+                    NewThumbnail{
+                        path: &thumbnail_name, height: *thumbnail_512p.height() as i32, width: *thumbnail_512p.width() as i32, ratio: &thumbnail_512p.ratio_as_str() }, NewEmbeddings{embeddings_id: img_embeddings.id()})
+                    .await?;
+
+
+                if let Err(e) = genai_tx.send((thumbnail_512p.image().clone(), img_embeddings)){
+                    log::error!("Failed to send thumbnail to genai thread\n{e:?}");
+                }
             },
             Some(msg) = genai_rx.recv() => {
                 let ( img_thumbnail, img_embeddings) = msg;
@@ -107,7 +119,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => {
                         // Ollama
                         let ollama_str = to_llava_base64(&img_thumbnail);
-
                         let ollama_structured = fetch_llava_description(&ollama_str, ImagePrompt::SemiStructured).await?;
                          ollama_structured
                     }

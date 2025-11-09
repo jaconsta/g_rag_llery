@@ -20,6 +20,8 @@ pub enum BucketOperationsError {
     BlobDownload,
     #[error("Failed to read/parse Stream.")]
     BlobRead,
+    #[error("Failed to Move object.")]
+    BlobMove,
 }
 
 #[derive(Error, Debug)]

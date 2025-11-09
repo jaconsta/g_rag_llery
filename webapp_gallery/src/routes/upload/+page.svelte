@@ -187,13 +187,13 @@
 
 			try {
 				const bucketFormData = new FormData();
-				bucketFormData.append('file', files[fi]); // The file must be the last element
+				bucketFormData.append('File', files[fi]);
 
 				// Response is empty
 				await fetch(signedUrl, {
 					method: 'PUT',
 					headers: {},
-					body: bucketFormData
+					body: bucketFormData.get('File')
 				});
 
 				filesMetadata[fi].status = 'finished';

@@ -1,4 +1,5 @@
 use futures_util::StreamExt;
+use minio::s3::builders::CopySource;
 use minio::s3::creds::StaticProvider;
 use minio::s3::http::BaseUrl;
 use minio::s3::types::S3Api;
@@ -73,6 +74,45 @@ pub async fn download(filename: &str) -> Result<Vec<u8>, BucketOperationsError> 
 
     let bu = body.concat();
     Ok(bu)
+}
+
+pub async fn move_to_ragged(filename: &str) -> Result<String, BucketOperationsError> {
+    // Create a config because these env::vars everywhere are confusing
+    let source_bucket = std::env::var("MINIO_BUCKET_NAME").unwrap_or("rag-upload".to_string());
+    let destination_bucket =
+        std::env::var("BUCKET_RAGGED_BUCKET").unwrap_or("rag-upload".to_string());
+    let client = b3_client();
+
+    // Modify filename, replace the destination folder
+    let destination = str::replace(filename, "feeder/", "feeded");
+
+    let moved_file = client
+        .copy_object(destination_bucket, &destination)
+        .source(CopySource::new(&source_bucket, filename).map_err(|e| {
+            log::error!("move_to_ragged copy_source: {e:?}");
+            BucketOperationsError::BlobMove
+        })?)
+        .send()
+        .await
+        .map_err(|e| {
+            log::error!("move_to_ragged copy: {e:?}");
+            BucketOperationsError::BlobMove
+        })?;
+
+    log::info!("File moved {:?}", moved_file);
+
+    let source_deleted = client
+        .delete_object(&source_bucket, filename)
+        .send()
+        .await
+        .map_err(|e| {
+            log::error!("move_to_ragged copy: {e:?}");
+            BucketOperationsError::BlobMove
+        })?;
+
+    log::info!("Feeder object {filename} deleted {source_deleted:?}");
+
+    Ok(destination)
 }
 
 #[cfg(test)]

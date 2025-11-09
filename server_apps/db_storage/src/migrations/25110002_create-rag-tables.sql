@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS user_upload(
             filesize int not null,
             filehash text not null,
             user_id uuid,
+            gallery_id uuid,
             created_at timestamptz not null default now(),
             updated_at timestamptz not null default now()
     )

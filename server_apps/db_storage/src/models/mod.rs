@@ -8,6 +8,17 @@ use uuid::Uuid;
 use crate::DbConn;
 use crate::errors::QueryError;
 
+pub struct NewThumbnail<'a> {
+    pub path: &'a str,
+    pub height: i32,
+    pub width: i32,
+    pub ratio: &'a str,
+}
+
+pub struct NewEmbeddings {
+    pub embeddings_id: i64,
+}
+
 #[derive(Debug, Clone, Getters, sqlx::FromRow)]
 pub struct Gallery {
     id: Uuid,
@@ -15,35 +26,26 @@ pub struct Gallery {
     thumbnail_path: Option<String>,
     thumbnail_height: Option<i32>,
     thumbnail_width: Option<i32>,
+    thumbnail_ratio: Option<String>,
     embeddings_id: Option<i64>,
     created_at: time::OffsetDateTime,
     updated_at: time::OffsetDateTime,
 }
 
 impl Gallery {
-    pub fn new(path: String) -> Self {
+    pub fn new(path: &str) -> Self {
         let now = OffsetDateTime::now_utc();
         Gallery {
             id: Uuid::nil(),
-            path,
+            path: path.to_string(),
             thumbnail_path: None,
             thumbnail_height: None,
             thumbnail_width: None,
+            thumbnail_ratio: None,
             embeddings_id: None,
             created_at: now.clone(),
             updated_at: now,
         }
-    }
-
-    pub fn set_thumbnail(&mut self, path: String) -> Self {
-        self.thumbnail_path = Some(path);
-        self.updated_at = OffsetDateTime::now_utc();
-        self.to_owned()
-    }
-    pub fn set_embeddings(&mut self, fk_id: i64) -> Self {
-        self.embeddings_id = Some(fk_id);
-        self.updated_at = OffsetDateTime::now_utc();
-        self.to_owned()
     }
 
     pub async fn create(&self, conn: &crate::DbConn) -> Result<Gallery, QueryError> {
@@ -53,9 +55,9 @@ impl Gallery {
              with inserted_gallery as (
                  insert into gallery(path, created_at, updated_at)
                  values ($1, $2, $3)
-                 returning id, path, embeddings_id, thumbnail_path, thumbnail_width, thumbnail_height, created_at, updated_at
+                 returning id, path, embeddings_id, thumbnail_path, thumbnail_width, thumbnail_height, thumbnail_ratio,created_at, updated_at
              )
-             select id, path, created_at, updated_at, embeddings_id, thumbnail_path, thumbnail_width, thumbnail_height
+             select id, path, created_at, updated_at, embeddings_id, thumbnail_path, thumbnail_width, thumbnail_ratio, thumbnail_height
              from inserted_gallery
          "#,
             self.path,
@@ -72,51 +74,60 @@ impl Gallery {
         Ok(gallery)
     }
 
-    pub async fn link_thumbnail(
-        &self,
+    /// Takes thumbnail , embeddings and original moved bucket information and update
+    /// the record in db. Initially was 3 methods but merged them into 1 to reduce db
+    /// operations.
+    pub async fn update_with_processed<'a>(
+        &mut self,
         conn: &crate::DbConn,
-        thumbnail: &str,
-        height: u32,
-        width: u32,
-        ratio: String,
+        path: &str,
+        thumbnail: NewThumbnail<'a>,
+        embeddings: NewEmbeddings,
     ) -> Result<(), QueryError> {
+        let updated_at = OffsetDateTime::now_utc();
         let _ = sqlx::query!(
-            "UPDATE gallery SET thumbnail_path=$2, thumbnail_height=$3, thumbnail_width=$4, thumbnail_ratio=$5 where id=$1",
+            "UPDATE gallery SET path=$2, thumbnail_path=$3, thumbnail_height=$4, thumbnail_width=$5, thumbnail_ratio=$6, embeddings_id=$7,updated_at=$8 where id=$1",
             self.id,
-            thumbnail,
-            height as i32,
-            width as i32,
-            ratio 
+            path, 
+            thumbnail.path,
+            thumbnail.height,
+            thumbnail.width,
+            thumbnail.ratio ,
+            embeddings.embeddings_id,
+            updated_at
         )
         .execute(conn)
         .await
         .map_err(|e| {
-            log::error!("whyme");
-            log::error!("{e:?}");
+            log::error!("Failed on update {e:?}");
             QueryError::Query
         })?;
+
+        self.path = path.to_string();
+        self.thumbnail_path = Some(thumbnail.path.to_string());
+        self.thumbnail_height = Some(thumbnail.height);
+        self.thumbnail_width = Some(thumbnail.width);
+        self.thumbnail_ratio= Some(thumbnail.ratio.to_string());
+        self.embeddings_id = Some(embeddings.embeddings_id);
+        self.updated_at = updated_at;
 
         Ok(())
     }
-    pub async fn link_embeddings(
-        &self,
-        conn: &crate::DbConn,
-        embedding_id: i64,
-    ) -> Result<(), QueryError> {
-        let _ = sqlx::query!(
-            "UPDATE gallery SET embeddings_id=$1 where id=$2",
-            embedding_id,
-            self.id
+
+    // Deletes
+    pub async fn delete_one(self, conn: &crate::DbConn) -> Result<(), QueryError> {
+         sqlx::query!(
+            "DELETE from gallery where id=$1",
+    self.id
         )
-        // .bind(embedding_id)
-        // .bind(self.id.to_string())
         .execute(conn)
         .await
         .map_err(|e| {
-            log::error!("{e:?}");
+            log::error!("Failed on delete{e:?}");
             QueryError::Query
         })?;
 
+        log::info!("Deleted galery id={}",self.id);
         Ok(())
     }
 }
@@ -225,7 +236,6 @@ impl GalleryEmbeddings {
         conn: &crate::DbConn,
     ) -> Result<Vec<GalleryEmbeddings>, QueryError> {
         let embed_vec = Vector::from(embedding);
-        //  SELECT id, path, keywords, description, embedding
         let mut embeddings_rows = sqlx::query(
             r#"
               SELECT * 
@@ -237,24 +247,6 @@ impl GalleryEmbeddings {
         .fetch(conn);
 
         let mut res = Vec::new();
-        // loop {
-        //     let m = embeddings_rows.try_next().await ;
-        //     if let Err(e) = &m {
-        //         println!("em try next {e:?}");
-        //         continue;
-        //     }
-
-        //     let mn = m.unwrap();
-        //
-        //     if mn.is_none() {
-        //         break;
-        //     }
-        //     let row = mn.unwrap();
-
-        //      let row_vec: Vector = row.get("embedding");
-        //     res.push(GalleryEmbeddings { id: row.get("id"), path: row.get("path"), keywords: row.get("keywords"), description: row.get("description"), embedding: row_vec.to_vec() });
-
-        // }
         while let Ok(Some(row)) = embeddings_rows.try_next().await {
             let row_vec: Vector = row.get("embedding");
             res.push(GalleryEmbeddings {
@@ -268,11 +260,6 @@ impl GalleryEmbeddings {
                 img_alt: row.get("img_alt"),
             });
         }
-
-        // .map_err(|e| {
-        //     log::error!("{e:?}");
-        //     QueryError::Query
-        // })?;
 
         Ok(res)
     }
@@ -308,6 +295,67 @@ impl GalleryEmbeddings {
 
         Ok(())
     }
+
+    // Deletes
+    pub async fn delete_one(self, conn: &crate::DbConn) -> Result<(), QueryError> {
+         sqlx::query!(
+            "DELETE from gallery_rag_embeddings where id=$1",
+    self.id
+        )
+        .execute(conn)
+        .await
+        .map_err(|e| {
+            log::error!("Failed on delete {e:?}");
+            QueryError::Query
+        })?;
+
+        log::info!("Deleted gallery_rag_embeddings id={}",self.id);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Getters, sqlx::FromRow)]
+pub struct UserUpload {
+    id: Uuid,
+    /// Bucket path of the image used for Processing
+    filename: String,
+    filesize: i64,
+    filehash: String,
+    user_id: Option<Uuid>,
+    gallery_id: Option<Uuid>,
+}
+
+impl UserUpload {
+    pub async fn get_by_filename(conn: &crate::DbConn, filename: &str) -> Result<Self, QueryError> {
+        let user_upload = sqlx::query_as!(UserUpload, r#"
+            SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where filename = $1"#, filename).fetch_one(conn).await.map_err(|e| {log::error!("{e:?}"); QueryError::Query})?;
+
+        Ok(user_upload)
+    }
+
+    pub async fn set_gallery_id(
+        &mut self,
+        conn: &crate::DbConn,
+        gallery_id: &Uuid,
+    ) -> Result<(), QueryError> {
+        println!("{}", self.id);
+        let _ = sqlx::query!(
+            r#"
+            UPDATE user_upload set gallery_id = $1 where id = $2"#,
+            gallery_id,
+            self.id
+        )
+        .execute(conn)
+        .await
+        .map_err(|e| {
+            log::error!("{e:?}");
+            QueryError::Query
+        })?;
+
+        self.gallery_id = Some(gallery_id.clone());
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -339,12 +387,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn it_links_thumbnail_gallery() {
+    async fn it_links_processed_to_gallery() {
         let (conn, mut gallery_itm) = create_reg().await;
         let pre_id = gallery_itm.id.clone();
-        let gallery_itm = gallery_itm.set_thumbnail("/some/path.jpg".into());
-        let r = gallery_itm
-            .link_thumbnail(&conn, "/some/path.jpg", 3, 4, "portrait".into())
+
+        let mut embe = GalleryEmbeddings::new("/some/thumbnail.webp".into(), vec![1.0; 512])
+            .set_keywords(vec!["keyone".to_string(), "keytwo".to_string()])
+            .set_description("This summary is provided by ai".into());
+
+        embe.create(&conn).await.unwrap();
+
+
+        // it_updates_original_feeded_after_move
+        let updated_path = "/new/some/feeded.jpg";
+        // it_links_thumbnail_gallery
+        let thumbnail = NewThumbnail{
+                        path: "/some/thumbnailpath.jpg", height: 3 as i32, width: 4, ratio: "portrait" } ;
+        // it_updates_fk_embeddings
+        let embeddings = NewEmbeddings{embeddings_id: embe.id()};
+
+        let r = gallery_itm.update_with_processed(
+            &conn,updated_path, thumbnail, embeddings )
             .await;
         if let Err(e) = r {
             println!("{e:?}");
@@ -358,13 +421,17 @@ mod tests {
         assert!(
             gallery_itm
                 .thumbnail_path
+                .as_ref()
                 .is_some_and(|f| f == "/some/path.jpg")
         );
+
+        // Clean after
+        let _  = gallery_itm.delete_one(&conn);
     }
 
     #[tokio::test]
     async fn it_creates_embeddings() {
-        let (conn, _gallery_itm) = create_reg().await;
+        let (conn, gallery_itm) = create_reg().await;
 
         let mut embe = GalleryEmbeddings::new("/some/thumbnail.webp".into(), vec![1.0; 512])
             .set_keywords(vec!["keyone".to_string(), "keytwo".to_string()])
@@ -373,25 +440,15 @@ mod tests {
         embe.create(&conn).await.unwrap();
 
         assert!(embe.id > 0);
-    }
 
-    #[tokio::test]
-    async fn it_updates_fk_embeddings() {
-        let (conn, mut gallery_itm) = create_reg().await;
-
-        let mut embe = GalleryEmbeddings::new("/some/thumbnail.webp".into(), vec![1.0; 512])
-            .set_keywords(vec!["keyone".to_string(), "keytwo".to_string()])
-            .set_description("This summary is provided by ai".into());
-
-        embe.create(&conn).await.unwrap();
-
-        gallery_itm.set_embeddings(embe.id);
-        gallery_itm.link_embeddings(&conn, embe.id).await.unwrap();
+        // Clean after
+        let _ = gallery_itm.delete_one(&conn).await;
+        let _ = embe.delete_one(&conn).await;
     }
 
     #[tokio::test]
     async fn it_finds_gallery_with_embeddings() {
-        let (conn, _) = create_reg().await;
+        let (conn, gallery_itm) = create_reg().await;
 
         let embe = GalleryEmbeddings::find_nearest(vec![1.0; 512], &conn)
             .await
@@ -399,12 +456,18 @@ mod tests {
         println!("{:?}", embe);
 
         assert!(embe.len() > 1);
+
+        // Clean after
+        let _ = gallery_itm.delete_one(&conn).await;
+        for e in embe.iter().to_owned() {
+        let _ = <GalleryEmbeddings as Clone>::clone(&e).delete_one(&conn).await;
+        }
     }
 
     #[tokio::test]
     async fn it_update_gallery_description() {
         // This test is flaky because it depends on "it_creates_embeddings"
-        let (conn, _) = create_reg().await;
+        let (conn, gallery_itm) = create_reg().await;
 
         let mut embe = GalleryEmbeddings::new("/some/thumbnail.webp".into(), vec![1.0; 512])
             .set_keywords(vec!["keyone".to_string(), "keytwo".to_string()])
@@ -438,5 +501,9 @@ mod tests {
                 .clone()
                 .is_some_and(|f| f == keywords)
         );
+
+        // Clean after
+        let _ = gallery_itm.delete_one(&conn).await;
+        let _ = embe.delete_one(&conn).await;
     }
 }
