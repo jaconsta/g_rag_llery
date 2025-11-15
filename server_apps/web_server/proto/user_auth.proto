@@ -1,0 +1,17 @@
+syntax = "proto3";
+package user_auth;
+
+service AuthGreeter {
+  // Starts the cipher handshake process by returning public keys
+  rpc GreetAuth(EmptyRequest) returns (ServerPublicKeys);
+  rpc ExchangeAuth(UserPublicAuth) returns (UserAuthResponse);
+}
+
+message EmptyRequest {}
+message ServerPublicKeys { string publicKey = 1; }
+message UserPublicAuth {
+  string ephemeralPublicKey = 1;
+  string nonce = 2;
+  string message = 3;
+}
+message UserAuthResponse { string status = 1; }

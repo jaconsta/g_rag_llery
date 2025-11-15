@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [ "db_storage","image_feeder"]
+members = [ "db_storage","image_feeder", "web_server"]
 
 [dependencies]
