@@ -5,6 +5,7 @@ mod errors;
 pub mod models;
 
 pub type DbConn = Pool<Postgres>;
+pub use errors::QueryError;
 
 pub async fn db_connect(url: &str) -> Result<DbConn, DbError> {
     let pool = PgPoolOptions::new()
@@ -18,7 +19,6 @@ pub async fn db_connect(url: &str) -> Result<DbConn, DbError> {
 
     Ok(pool)
 }
-
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

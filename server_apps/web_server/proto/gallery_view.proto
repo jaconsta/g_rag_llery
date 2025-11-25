@@ -1,0 +1,40 @@
+syntax = "proto3";
+package gallery_view;
+
+service GalleryView {
+  rpc UploadImage(UploadImageRequest) returns (SignedLinkResponse);
+  rpc ListGallery(FilterGalleryRequest) returns (GalleryImagesResponse);
+  rpc FilterOptions(EmptyRequest) returns (FilterOptionResponse);
+}
+
+message UploadImageRequest {
+  string filename = 1;
+  int32 filesize = 2;
+  string filehash = 3;
+}
+message SignedLinkResponse { string bucketLink = 1; }
+
+message EmptyRequest {}
+message FilterGalleryRequest {
+  optional string page = 1;
+  optional string size = 2;
+  optional string searchText = 3;
+  optional string theme = 4;
+  optional string ratio = 5;
+}
+message GalleryImagesResponse {
+  repeated GalleryImage images = 1;
+  int32 count = 2;
+}
+message GalleryImage {
+  string imgUrl = 1;
+  string ariaText = 2;
+  string aspect = 3;
+  string theme = 4;
+  string altText = 5;
+}
+
+message FilterOptionResponse {
+  repeated string aspects = 1;
+  repeated string themes = 2;
+}

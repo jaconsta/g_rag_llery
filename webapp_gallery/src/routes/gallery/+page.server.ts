@@ -2,6 +2,9 @@ import { getPresignedUrl, minioClient } from "$lib/server/minio"
 import { fail } from "@sveltejs/kit";
 import { prisma } from "../../lib/server/prisma/prisma"
 
+import { createChannel, createClient } from "nice-grpc";
+import { type GalleryViewClient, GalleryViewDefinition, type FilterGalleryRequest } from "../../proto/gallery_view";
+
 interface Photo {
   src: string,
   caption: string,
@@ -11,6 +14,16 @@ interface Photo {
 }
 
 export const load/*: PageServerLoad*/ = async () => {
+  const channel = createChannel("localhost:50051");
+  const client: GalleryViewClient = createClient(GalleryViewDefinition, channel);
+  const filter: FilterGalleryRequest = {
+
+  };
+  const res = await client.listGallery(filter);
+  console.log("grpgrpgrpgrpgrpcccccPres");
+  console.log(res);
+  channel.close();
+
   const mClient = minioClient();
   let imageData;
   try {

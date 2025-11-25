@@ -6,7 +6,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::DbConn;
-use crate::errors::QueryError;
+use crate::errors::{QueryError, QueryResult};
+pub mod user_photos;
 
 pub struct NewThumbnail<'a> {
     pub path: &'a str,
@@ -48,7 +49,7 @@ impl Gallery {
         }
     }
 
-    pub async fn create(&self, conn: &crate::DbConn) -> Result<Gallery, QueryError> {
+    pub async fn create(&self, conn: &crate::DbConn) -> QueryResult<Gallery> {
         let gallery = sqlx::query_as!(
             Gallery,
             r#"
@@ -83,7 +84,7 @@ impl Gallery {
         path: &str,
         thumbnail: NewThumbnail<'a>,
         embeddings: NewEmbeddings,
-    ) -> Result<(), QueryError> {
+    ) -> QueryResult<()> {
         let updated_at = OffsetDateTime::now_utc();
         let _ = sqlx::query!(
             "UPDATE gallery SET path=$2, thumbnail_path=$3, thumbnail_height=$4, thumbnail_width=$5, thumbnail_ratio=$6, embeddings_id=$7,updated_at=$8 where id=$1",
@@ -114,22 +115,35 @@ impl Gallery {
         Ok(())
     }
 
-    // Deletes
-    pub async fn delete_one(self, conn: &crate::DbConn) -> Result<(), QueryError> {
+    /// Deletes
+    /// Consumes itself to drop the value.
+    pub async fn delete_one(self, conn: &crate::DbConn) -> QueryResult<()> {
          sqlx::query!(
             "DELETE from gallery where id=$1",
-    self.id
+            self.id
         )
         .execute(conn)
         .await
         .map_err(|e| {
-            log::error!("Failed on delete{e:?}");
+            log::error!("Failed on delete {e:?}");
             QueryError::Query
         })?;
 
-        log::info!("Deleted galery id={}",self.id);
+        log::info!("Deleted galery id={}", self.id);
         Ok(())
     }
+
+     pub async fn list_for_user(conn: &crate::DbConn, user_id: &Uuid) -> QueryResult<Vec<Gallery>> {
+          let user_posts = sqlx::query_as!(
+             Gallery,
+             "SELECT g.* from gallery g inner join user_upload u on u.gallery_id=g.id where u.user_id=$1",
+            user_id
+         )
+         .fetch_all(conn)
+         .await?;
+
+         Ok(user_posts)
+     }
 }
 
 #[derive(Debug, Clone, Getters, sqlx::FromRow)]
@@ -180,28 +194,6 @@ impl GalleryEmbeddings {
 
     pub async fn create(&mut self, conn: &crate::DbConn) -> Result<(), QueryError> {
         let embe = Vector::from(self.embedding.clone());
-        // let embeddings = sqlx::query!(
-        //     r#"
-        //      with i_embeddings as (
-        //          insert into gallery_rag_embeddings(path, keywords, description, embedding)
-        //          values ($1, $2, $3, $4)
-        //          returning id
-        //      )
-        //      select id
-        //      from i_embeddings
-        //  "#,
-        //     self.path,
-        //     &self.keywords,
-        //     self.description,
-        //     &embe
-        // )
-        // .fetch_one(conn)
-        // .await
-        // .map_err(|e| {
-        //     log::error!("{e:?}");
-        //     QueryError::Query
-        // })?;
-        // self.id = embeddings.id;
 
         let embeddings_row = sqlx::query(
             r#"
@@ -326,6 +318,19 @@ pub struct UserUpload {
 }
 
 impl UserUpload {
+    pub async fn new_for_upload(conn: &crate::DbConn, filename: &str, filesize: i32, filehash: &str, user_id: Uuid) -> Result<UserUpload, QueryError> {
+        let user_upload = sqlx::query_as!(UserUpload, r#"
+        with inserted_upload as (
+            insert into user_upload (filename, filesize, filehash, user_id)
+            values ($1, $2, $3, $4)
+            returning id, filename, filesize, filehash, user_id, gallery_id
+        )
+            SELECT id, filename, filesize, filehash, user_id, gallery_id 
+            from inserted_upload"#, filename, filesize, filehash, user_id).fetch_one(conn).await.map_err(|e| {log::error!("{e:?}"); QueryError::Query})?;
+        
+        Ok(user_upload)
+    }
+
     pub async fn get_by_filename(conn: &crate::DbConn, filename: &str) -> Result<Self, QueryError> {
         let user_upload = sqlx::query_as!(UserUpload, r#"
             SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where filename = $1"#, filename).fetch_one(conn).await.map_err(|e| {log::error!("{e:?}"); QueryError::Query})?;
@@ -338,7 +343,7 @@ impl UserUpload {
         conn: &crate::DbConn,
         gallery_id: &Uuid,
     ) -> Result<(), QueryError> {
-        println!("{}", self.id);
+        println!("set_gallery_id {}", self.id);
         let _ = sqlx::query!(
             r#"
             UPDATE user_upload set gallery_id = $1 where id = $2"#,
@@ -507,3 +512,4 @@ mod tests {
         let _ = embe.delete_one(&conn).await;
     }
 }
+

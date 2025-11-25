@@ -10,7 +10,7 @@ use tonic::{Request, Response, Status};
 pub use user_auth_rpc::auth_greeter_server::{AuthGreeter, AuthGreeterServer};
 use user_auth_rpc::{EmptyRequest, ServerPublicKeys, UserAuthResponse, UserPublicAuth};
 
-use crate::error::{Errors, ResultR};
+use crate::error::{Error, Result};
 
 pub mod user_auth_rpc {
     tonic::include_proto!("user_auth"); // The string specified here must match the proto package name
@@ -21,6 +21,8 @@ pub struct UserAuthGreeter {
     secret_key: SecretKey,
 }
 
+const KEY_LEN: usize = 32;
+
 impl Default for UserAuthGreeter {
     fn default() -> Self {
         let bob_secret = SecretKey::generate(&mut OsRng);
@@ -30,7 +32,6 @@ impl Default for UserAuthGreeter {
     }
 }
 
-const KEY_LEN: usize = 32;
 impl UserAuthGreeter {
     fn get_public_key(&self) -> String {
         let bob_public = self.secret_key.public_key();
@@ -39,13 +40,13 @@ impl UserAuthGreeter {
     }
 
     // Utility function to convert a hex into public or secret key
-    fn hex_to_key<T>(s: &str) -> ResultR<T>
+    fn hex_to_key<T>(s: &str) -> Result<T>
     where
         T: for<'a> TryFrom<&'a [u8], Error = TryFromSliceError>,
     {
         let bytes = hex::decode(s)?;
         if bytes.len() != KEY_LEN {
-            return Err(Errors::InvalidLength {
+            return Err(Error::InvalidLength {
                 expected: KEY_LEN,
                 received: bytes.len(),
             }
@@ -55,7 +56,7 @@ impl UserAuthGreeter {
         Ok(key)
     }
 
-    fn decode_message(&self, user_content: &UserPublicAuth) -> ResultR<String> {
+    fn decode_message(&self, user_content: &UserPublicAuth) -> Result<String> {
         let user_public: PublicKey =
             UserAuthGreeter::hex_to_key(&user_content.ephemeral_public_key)?;
         let bob_box = ChaChaBox::new(&user_public, &self.secret_key);
@@ -66,7 +67,7 @@ impl UserAuthGreeter {
         let user_contentten = hex::decode(&user_content.message).unwrap(); // Message is cipher(ed)
         let decrypted_data = bob_box
             .decrypt(nonce, user_contentten.as_slice())
-            .map_err(|e| Errors::CryptoError(e))?; //  "Decryption failed!")?;
+            .map_err(|e| Error::CryptoError(e))?; //  "Decryption failed!")?;
 
         let msg = String::from_utf8(decrypted_data)?;
         Ok(msg)
@@ -78,7 +79,7 @@ impl AuthGreeter for UserAuthGreeter {
     async fn greet_auth(
         &self,
         _request: Request<EmptyRequest>,
-    ) -> Result<Response<ServerPublicKeys>, Status> {
+    ) -> std::result::Result<Response<ServerPublicKeys>, Status> {
         println!("Got a greet request");
         let public_keys = ServerPublicKeys {
             public_key: self.get_public_key(),
@@ -90,7 +91,7 @@ impl AuthGreeter for UserAuthGreeter {
     async fn exchange_auth(
         &self,
         request: Request<UserPublicAuth>,
-    ) -> Result<Response<UserAuthResponse>, Status> {
+    ) -> std::result::Result<Response<UserAuthResponse>, Status> {
         // request is alice
         let alice = request.get_ref();
 
@@ -116,7 +117,6 @@ mod tests {
 
     use super::*;
     use crypto_box::aead::AeadCore;
-    // use std::array::TryFromSliceError;
 
     #[derive(Serialize, Deserialize)]
     struct SecretsMessageDemo {
@@ -125,10 +125,7 @@ mod tests {
         ciphertext: String,
     }
 
-    fn simulate_alice_aka_client(
-        bob_public: String,
-        message: &str,
-    ) -> Result<SecretsMessageDemo, Box<dyn std::error::Error>> {
+    fn simulate_alice_aka_client(bob_public: String, message: &str) -> Result<SecretsMessageDemo> {
         let message = message.as_bytes(); // The user "auth" key
 
         let alice_ephemeral_secret = SecretKey::generate(&mut OsRng);
