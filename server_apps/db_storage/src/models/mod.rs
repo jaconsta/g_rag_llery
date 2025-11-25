@@ -78,6 +78,8 @@ impl Gallery {
     /// Takes thumbnail , embeddings and original moved bucket information and update
     /// the record in db. Initially was 3 methods but merged them into 1 to reduce db
     /// operations.
+    /// This replaces the "initial" upload path with the "later" path. 
+    /// User_uploads upload path remains unmodified for user "duplication" filter.
     pub async fn update_with_processed<'a>(
         &mut self,
         conn: &crate::DbConn,

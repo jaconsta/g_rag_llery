@@ -4,6 +4,7 @@ use minio::s3::creds::StaticProvider;
 use minio::s3::http::BaseUrl;
 use minio::s3::types::S3Api;
 use minio::s3::{Client, ClientBuilder};
+use uuid::Uuid;
 
 use crate::errors::BucketOperationsError;
 
@@ -78,13 +79,24 @@ pub async fn download(filename: &str) -> Result<Vec<u8>, BucketOperationsError> 
 
 pub async fn move_to_ragged(filename: &str) -> Result<String, BucketOperationsError> {
     // Create a config because these env::vars everywhere are confusing
-    let source_bucket = std::env::var("MINIO_BUCKET_NAME").unwrap_or("rag-upload".to_string());
+    let source_bucket = std::env::var("BUCKET_FEEDER_NAME").unwrap_or("rag-upload".to_string());
     let destination_bucket =
-        std::env::var("BUCKET_RAGGED_BUCKET").unwrap_or("rag-upload".to_string());
+        std::env::var("BUCKET_RAGGED_NAME").unwrap_or("rag-processed".to_string());
     let client = b3_client();
 
     // Modify filename, replace the destination folder
-    let destination = str::replace(filename, "feeder/", "feeded");
+    // let destination = str::replace(filename, "feeder/", "feeded/");
+
+    let random_name = Uuid::new_v4().to_string();
+    // Find the extension or empty. Assume normal extensions.
+    let extension = filename.split(".").last().unwrap_or("");
+    let destination = format!("feeder/{}.{}", random_name, extension);
+    log::info!(
+        "Origin bucket: {}, filename: {}. Destination {}.",
+        source_bucket,
+        filename,
+        &destination
+    );
 
     let moved_file = client
         .copy_object(destination_bucket, &destination)
@@ -99,7 +111,12 @@ pub async fn move_to_ragged(filename: &str) -> Result<String, BucketOperationsEr
             BucketOperationsError::BlobMove
         })?;
 
-    log::info!("File moved {:?}", moved_file);
+    log::debug!(
+        "File moved region:{}, bucket:{}, object:{}",
+        &moved_file.region,
+        &moved_file.bucket,
+        &moved_file.object
+    );
 
     let source_deleted = client
         .delete_object(&source_bucket, filename)
@@ -110,7 +127,10 @@ pub async fn move_to_ragged(filename: &str) -> Result<String, BucketOperationsEr
             BucketOperationsError::BlobMove
         })?;
 
-    log::info!("Feeder object {filename} deleted {source_deleted:?}");
+    log::debug!(
+        "Feeder object {filename} deleted {:?}",
+        source_deleted.headers.get("date")
+    );
 
     Ok(destination)
 }

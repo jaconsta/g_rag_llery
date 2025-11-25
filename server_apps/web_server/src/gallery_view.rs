@@ -58,26 +58,21 @@ pub mod model {
         }
 
         pub async fn request_upload(&self, id: UserId, upload: &FileUpload<'_>) -> Result<String> {
-            // Is duplicated
-            match UserUpload::get_by_filename(&self.conn, &upload.name()).await {
+            let filename = format!("feeder/{}", upload.name());
+            // Check if is duplicated
+            match UserUpload::get_by_filename(&self.conn, &filename).await {
                 Ok(_) => return Err(Box::new(Error::Duplicated)),
-                Err(_) => { /* Assume err means empty result */ }
+                Err(_) => { /* Assume -> err means empty result */ }
             };
 
             // Create the record
-            UserUpload::new_for_upload(
-                &self.conn,
-                upload.name(),
-                *upload.size(),
-                upload.hash(),
-                id,
-            )
-            .await?;
+            UserUpload::new_for_upload(&self.conn, &filename, *upload.size(), upload.hash(), id)
+                .await?;
 
             // The user only needs the upload url at this point.
             Ok(self
                 .bucket
-                .get_upload_signed_url(upload.name(), Bucket::Feeder)
+                .get_upload_signed_url(&filename, Bucket::Feeder)
                 .await?)
         }
 
@@ -122,7 +117,7 @@ impl From<Vec<db_storage::models::user_photos::UserPhoto>> for GalleryImagesResp
                     img_url: f.thumbnail_path().as_ref().map_or("", |f| f).to_string(),
                     aria_text: f.img_aria().as_ref().map_or("", |f| f).to_string(),
                     aspect: f.thumbnail_ratio().as_ref().map_or("", |f| f).to_string(),
-                    theme: f.thumbnail_path().as_ref().map_or("", |f| f).to_string(),
+                    theme: f.theme().as_ref().map_or("", |f| f).to_string(),
                     alt_text: f.img_alt().as_ref().map_or("", |f| f).to_string(),
                 })
                 .collect(),
@@ -136,18 +131,6 @@ pub struct GalleryService<'a> {
     conn: db_storage::DbConn,
     bucket: BucketClient<'a>,
 }
-
-// impl Default for GalleryService<'_> {
-//     /// Trows on error
-//     fn default() -> Self {
-//         Self {
-//             conn: db_storage::db_connect(env::var("DB_URL").expect("Missing DB url").as_str())
-//                 .await
-//                 .unwrap(),
-//             bucket: Default::default(),
-//         }
-//     }
-// }
 
 impl<'a> GalleryService<'a> {
     pub fn new(conn: db_storage::DbConn, bucket: BucketClient<'a>) -> GalleryService<'a> {

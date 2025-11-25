@@ -1,14 +1,13 @@
-import { getPresignedPostUrl, minioClient } from '$lib/server/minio';
 import type { RequestHandler } from '@sveltejs/kit';
-import { prisma } from "../../../lib/server/prisma/prisma"
 
-import { v4 as uuidv4 } from 'uuid';
+import { createChannel, createClient } from "nice-grpc";
+import { type GalleryViewClient, GalleryViewDefinition, type UploadImageRequest } from "../../../proto/gallery_view";
 
 
 export const POST: RequestHandler = async ({ request }) => {
   let formData;
   try {
-    formData = await request.formData(); // this can throw
+    formData = await request.formData();
   } catch (e) {
     console.error(e);
     return new Response(JSON.stringify({ success: false }), { status: 500, headers: { "Content-type": "application/json" } });
@@ -29,25 +28,23 @@ export const POST: RequestHandler = async ({ request }) => {
     return new Response(JSON.stringify({ success: false }), { status: 400, headers: { "Content-type": "application/json" } });
   }
 
+  let channel
   try {
-    const isDuplicate = await prisma.user_upload.count({ where: { filename: name, filehash: hash } });
-    if (isDuplicate) {
-      return new Response(JSON.stringify({ success: false, duplicate: true }), { status: 406, headers: { "Content-type": "application/json" } });
-    }
+    channel = createChannel(process.env["SERVER_GRPC_URL"]!);
   } catch (e) {
-    console.error("Failed to fetch duplicate for ", { filename: name, filehash: hash }, e);
-    return new Response(JSON.stringify({ success: false }), { status: 500, headers: { "Content-type": "application/json" } });
+    console.error(e);
+    return new Response(JSON.stringify({ success: false }), { status: 400, headers: { "Content-type": "application/json" } });
   }
+
+  let signedUrl;
   try {
-    // Then insert
-    await prisma.user_upload.create({ data: { filename: `feeder/${name}`, filehash: hash, filesize: size, user_id: uuidv4() } });
+    const client: GalleryViewClient = createClient(GalleryViewDefinition, channel);
+    const uploadData: UploadImageRequest = { filehash: hash, filename: name, filesize: size };
+    signedUrl = await client.uploadImage(uploadData);
   } catch (e) {
     console.error("Provided an unsuitable", e);
     return new Response(JSON.stringify({ success: false }), { status: 500, headers: { "Content-type": "application/json" } });
   }
 
-
-  const m = minioClient()
-  const presignedUrl = await getPresignedPostUrl(m, name as string);
-  return new Response(JSON.stringify({ success: true, url: presignedUrl }), { status: 201, headers: { "Content-type": "application/json" } });
+  return new Response(JSON.stringify({ success: true, url: signedUrl.bucketLink }), { status: 201, headers: { "Content-type": "application/json" } });
 }
