@@ -1,14 +1,18 @@
 #[macro_use]
 extern crate rocket;
 
+use std::sync::Arc;
+
 use db_storage::db_connect;
 use serde_json::Value;
 use serde_json::json;
 use simple_logger::SimpleLogger;
+use tokio::sync::RwLock;
 use tokio::{signal, sync::broadcast};
 use tonic::transport::Server;
 
 use crate::error::Result;
+use crate::user_auth::UserSessions;
 
 mod bucket;
 mod config;
@@ -33,7 +37,6 @@ async fn main() -> Result<()> {
     // Load configuration
     let configs: config::Config = config::Config::default();
     let boxed = Box::new(configs);
-    // boxed.try_fill(&mut rng).unwrap();
     let config_s: &'static config::Config = Box::leak(boxed);
 
     // Shutdown handler
@@ -77,16 +80,14 @@ async fn rocket_task(mut shutdown_rx: broadcast::Receiver<()>) {
 /// gRPC server
 async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static config::Config) {
     log::info!("gRPC server running on port 50051.");
-    // let addr = "[::1]:50051".parse().expect("Failed to parse address");
     let addr = "0.0.0.0:50051".parse().expect("Failed to parse address");
-    let greeter = user_auth::UserAuthGreeter::default();
 
-    // let config: config::Config = config::Config::default();
-    // let pg_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
+    let user_session = Arc::new(RwLock::new(UserSessions::new()));
+    let greeter = user_auth::UserAuthGreeter::new(user_session.clone());
+    let _session_middleware = user_auth::SessionValidator::new(user_session);
+
     let db_pool = db_connect(&config.db().url()).await.unwrap();
-
     let bucket_client = bucket::BucketClient::new(&config.bucket()).unwrap();
-
     let img_gallery = gallery_view::GalleryService::new(db_pool.clone(), bucket_client);
 
     let grpc_server = Server::builder()

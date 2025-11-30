@@ -1,0 +1,63 @@
+sequenceDiagram
+    participant WebFE
+    participant WebAPI
+    participant RpcAPI
+
+
+    alt Login flow
+    %% Start requesting the server public key
+    WebFE->>+WebAPI: Request ephemeral public key
+    WebAPI->>+RpcAPI: RPC call. Request ephemeral public key
+    RpcAPI->>RpcAPI: Generate "ephemeral" PrivateKey
+    RpcAPI->>RpcAPI: Store privateKey in memory
+    RpcAPI->>-WebAPI: Send publicKey
+    WebAPI->>WebFE: Forward. Send publicKey
+    WebFE->>WebFE: Generate ephemeral keys, nonce. 
+    WebFE->>WebFE: Cipher user Code.
+    %% Send the userCode cipher challenge.
+    %% Geneate jwt
+    WebFE->>WebAPI: Send cipher code. Request jwt
+    WebAPI->>+RpcAPI: RPC call. Send cipher code. Request jwt.
+    RpcAPI->>RpcAPI: Load "ephemeral" PrivateKey
+    RpcAPI->>RpcAPI: Solve webFE cipher
+    RpcAPI->>RpcAPI: Argo2 hash the userCode. (userId for searches)
+    RpcAPI->>RpcAPI: Store in memory (or redis) with Ttl struct: {randomKey: userCodeHash}.
+    RpcAPI->>RpcAPI: Generate jwt. Use `randomKey` as userKey in body.  
+    RpcAPI->>-WebAPI: Send jwt.
+    WebAPI->>WebAPI: Generate session cookie.
+    WebAPI->>-WebFE: Reply success.
+    Note left of WebFE: All security is lost here.
+    WebFE->>WebFE: Store user token in sessionStorage.
+    end
+
+    alt Normal request
+    %% Nomal request#
+    WebFE->>+WebAPI: Send a request!
+    WebAPI->>WebAPI: Load jwt from session cookies.
+    WebAPI-->>RpcAPI: Send a request! + jwt auth header.
+    RpcAPI-->>WebAPI: Process and reply.
+    WebAPI-->>-WebFE: Forward reply.
+    end
+
+    alt "Refresh" token
+    %% In the future. RpcAPI ttl expired
+    %% No Refresh jwt. Recreate token from scratch
+    WebFE->>+WebAPI: Send a request!
+    WebAPI-->>RpcAPI: Send a request! + jwt auth header.
+    RpcAPI-->>WebAPI: Session expired message.
+    WebAPI-->>WebAPI: Delete session cookie.
+    WebAPI-->>-WebFE: Forward Session expired.
+    Note over WebFE: Restart login process
+    end
+
+    alt logout
+    %% logout
+    WebFE->>+WebAPI: Request logout.
+    WebAPI->>+RpcAPI: RPC call. Request logout.
+    RpcAPI->>RpcAPI: Delete userKey from memory.
+    RpcAPI->>-WebAPI: Reply success logout.
+    WebAPI->>WebAPI: Delete session cookie.
+    WebAPI->>-WebFE: Reply success logout.
+    WebFE->>WebFE: Remove userCode from LocalStorage
+    end
+   

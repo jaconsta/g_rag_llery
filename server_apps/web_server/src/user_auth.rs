@@ -1,12 +1,17 @@
-use std::array::TryFromSliceError;
+use std::{array::TryFromSliceError, collections::HashMap, sync::Arc};
 
 use crypto_box::{
     ChaChaBox, PublicKey, SecretKey,
     aead::{Aead, OsRng},
 };
 use hex;
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
+use rand::distr::{Alphanumeric, SampleString};
+use serde::{Deserialize, Serialize};
+use tokio::{sync::RwLock, time::Duration};
 use tonic::{Request, Response, Status};
 
+use twox_hash::XxHash3_64;
 pub use user_auth_rpc::auth_greeter_server::{AuthGreeter, AuthGreeterServer};
 use user_auth_rpc::{EmptyRequest, ServerPublicKeys, UserAuthResponse, UserPublicAuth};
 
@@ -16,9 +21,22 @@ pub mod user_auth_rpc {
     tonic::include_proto!("user_auth"); // The string specified here must match the proto package name
 }
 
+pub struct SessionValidator {
+    sessions: Arc<RwLock<UserSessions>>,
+}
+impl SessionValidator {
+    pub fn new(sessions: Arc<RwLock<UserSessions>>) -> Self {
+        Self { sessions }
+    }
+    pub async fn get_user(&self, user_id: &AuthId) -> Option<String> {
+        self.sessions.read().await.get_user(user_id).await
+    }
+}
+
 #[derive(Debug)]
 pub struct UserAuthGreeter {
     secret_key: SecretKey,
+    sessions: Arc<RwLock<UserSessions>>,
 }
 
 const KEY_LEN: usize = 32;
@@ -28,11 +46,18 @@ impl Default for UserAuthGreeter {
         let bob_secret = SecretKey::generate(&mut OsRng);
         Self {
             secret_key: bob_secret,
+            sessions: Arc::new(RwLock::new(UserSessions::new())),
         }
     }
 }
 
 impl UserAuthGreeter {
+    pub fn new(sessions: Arc<RwLock<UserSessions>>) -> Self {
+        Self {
+            sessions,
+            ..Default::default()
+        }
+    }
     fn get_public_key(&self) -> String {
         let bob_public = self.secret_key.public_key();
         let bob_public_key = hex::encode(bob_public.as_bytes());
@@ -94,20 +119,166 @@ impl AuthGreeter for UserAuthGreeter {
     ) -> std::result::Result<Response<UserAuthResponse>, Status> {
         // request is alice
         let alice = request.get_ref();
+        let sessions = self.sessions.clone();
 
-        match self.decode_message(alice) {
-            Ok(msg) => {
-                // Leak the keyword
-                println!("{}", msg);
-
-                Ok(Response::new(UserAuthResponse {
-                    status: "OK".to_string(),
-                }))
+        let user_code = match self.decode_message(alice) {
+            Ok(user_unique_code) => user_unique_code,
+            Err(_) => {
+                return Ok(Response::new(UserAuthResponse {
+                    status: "Error".to_string(),
+                }));
             }
+        };
+
+        match sessions.write().await.generate_new_session(user_code).await {
+            Ok(_) => Ok(Response::new(UserAuthResponse {
+                status: "OK".to_string(),
+            })),
             Err(_) => Ok(Response::new(UserAuthResponse {
                 status: "Error".to_string(),
             })),
         }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Claims {
+    // Audience
+    aud: String,
+    sub: String,
+    // Expiration
+    exp: u64,
+    // The key for User session hashmap
+    user_id: String,
+}
+
+impl Claims {
+    pub fn aud() -> &'static str {
+        "jaconsta"
+    }
+    pub fn sub() -> &'static str {
+        "me@jaconsta.com"
+    }
+}
+
+/// Hash key that points to UserId in the session map.
+type AuthId = u64;
+
+/// The link for the user information.
+/// The user_id stored in db tables.
+type UserId = String;
+#[derive(Debug)]
+pub struct UserSessions {
+    user_sessions: Arc<RwLock<HashMap<AuthId, UserId>>>,
+    ttl_min: u64,
+    jwt_secret: String,
+    hash_seed: u64,
+}
+
+impl UserSessions {
+    pub fn new() -> Self {
+        // Old jwts will be nulled after each reset.
+        let jwt_secret = Alphanumeric.sample_string(&mut rand::rng(), 32);
+
+        Self {
+            user_sessions: Arc::new(RwLock::new(HashMap::new())),
+            ttl_min: 120,
+            jwt_secret,
+            hash_seed: 0xdead_cafe,
+        }
+    }
+
+    /// Stores the information in storage and returns JWT
+    pub async fn generate_new_session(&mut self, user_true_code: String) -> Result<String> {
+        // Maybe not best implementation
+        let user_session_id = Alphanumeric.sample_string(&mut rand::rng(), 16);
+
+        let claims = Claims {
+            aud: Claims::aud().into(),
+            sub: Claims::sub().into(),
+            exp: 100000,
+            user_id: user_session_id.clone(),
+        };
+
+        let token = match jsonwebtoken::encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.jwt_secret.as_ref()),
+        ) {
+            Ok(t) => t,
+            Err(_) => return Err("Ohh noo".into()),
+        };
+
+        // Maybe change the hash function.
+        // Something like Blake3 (fast) or Argon2 (passwords)
+        let hashed = XxHash3_64::oneshot_with_seed(self.hash_seed, user_true_code.as_ref());
+        // This is user_id to store as reference in db
+        // Hex representation.
+        let user_code_hash = format!("{:x}", hashed);
+
+        // Using xxHash3 for hashmap keys.
+        let auth_id = XxHash3_64::oneshot_with_seed(self.hash_seed, user_session_id.as_ref());
+
+        self.set_user(auth_id, user_code_hash.into()).await;
+
+        Ok(token)
+    }
+
+    /// Takes the JWT. Validate it and extract the user_id
+    /// Currently the user_id is the only "business" information the JWT stores.
+    pub async fn validate_user_session(&self, jwt_token: String) -> Option<UserId> {
+        let mut jwt_validation = Validation::new(jsonwebtoken::Algorithm::HS256);
+        jwt_validation.set_audience(&[Claims::aud()]);
+        jwt_validation.sub = Some(Claims::sub().to_string());
+        jwt_validation.set_required_spec_claims(&["sub", "exp", "user_id"]);
+
+        let token_data = match jsonwebtoken::decode::<Claims>(
+            jwt_token,
+            &DecodingKey::from_secret(self.jwt_secret.as_ref()),
+            &jwt_validation,
+        ) {
+            Ok(c) => c,
+            Err(_) => return None,
+        };
+
+        // Generate hashMap key.
+        let auth_id =
+            XxHash3_64::oneshot_with_seed(self.hash_seed, token_data.claims.user_id.as_ref());
+
+        self.get_user(&auth_id).await
+    }
+
+    /// Expected usecase: When want to validate the current user session.
+    pub async fn get_user(&self, auth_id: &AuthId) -> Option<UserId> {
+        let sessions = self.user_sessions.read().await;
+        sessions.get(auth_id).cloned()
+    }
+
+    /// Expected usecase: Add a new user session.
+    pub async fn set_user(&mut self, auth_id: AuthId, user_id: UserId) {
+        let mut sessions = self.user_sessions.write().await;
+        sessions.insert(auth_id, user_id);
+    }
+
+    /// Expected usecase: Logout the use.
+    pub async fn pop_user(&mut self, auth_id: &AuthId) {
+        let mut sessions = self.user_sessions.write().await;
+        sessions.remove(auth_id);
+    }
+
+    /// Expected usecase: Logout the user after session expiration.
+    pub async fn timeout_pop(&mut self, auth_id: AuthId) {
+        let ttl = self.ttl_min.clone();
+        let session = self.user_sessions.clone();
+        // Currently there is no cancelation of the timeout.
+        // It is assumed that if `sessions.remove` returns empty
+        // object, it means the user is logged out.
+        let _timer = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_mins(ttl)).await;
+
+            let mut sessions = session.write().await;
+            sessions.remove(&auth_id);
+        });
     }
 }
 
