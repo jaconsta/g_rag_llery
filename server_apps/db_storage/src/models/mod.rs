@@ -135,7 +135,7 @@ impl Gallery {
         Ok(())
     }
 
-     pub async fn list_for_user(conn: &crate::DbConn, user_id: &Uuid) -> QueryResult<Vec<Gallery>> {
+     pub async fn list_for_user(conn: &crate::DbConn, user_id: &str) -> QueryResult<Vec<Gallery>> {
           let user_posts = sqlx::query_as!(
              Gallery,
              "SELECT g.* from gallery g inner join user_upload u on u.gallery_id=g.id where u.user_id=$1",
@@ -315,12 +315,12 @@ pub struct UserUpload {
     filename: String,
     filesize: i64,
     filehash: String,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     gallery_id: Option<Uuid>,
 }
 
 impl UserUpload {
-    pub async fn new_for_upload(conn: &crate::DbConn, filename: &str, filesize: i32, filehash: &str, user_id: Uuid) -> Result<UserUpload, QueryError> {
+    pub async fn new_for_upload(conn: &crate::DbConn, filename: &str, filesize: i32, filehash: &str, user_id: &str) -> Result<UserUpload, QueryError> {
         let user_upload = sqlx::query_as!(UserUpload, r#"
         with inserted_upload as (
             insert into user_upload (filename, filesize, filehash, user_id)

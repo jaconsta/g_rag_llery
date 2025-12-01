@@ -5,14 +5,11 @@ use gallery_view_rpc::{
     EmptyRequest, FilterGalleryRequest, FilterOptionResponse, GalleryImagesResponse,
     SignedLinkResponse, UploadImageRequest,
 };
-use uuid::Uuid;
 
 use crate::{
     bucket::BucketClient,
-    gallery_view::{
-        gallery_view_rpc::GalleryImage,
-        model::{FileUpload, UserId},
-    },
+    gallery_view::{gallery_view_rpc::GalleryImage, model::FileUpload},
+    user_auth::SessionValidator,
 };
 
 pub mod gallery_view_rpc {
@@ -25,14 +22,12 @@ pub mod model {
         user_photos::{FilterableProperties, UserPhoto},
     };
     use derive_getters::Getters;
-    use uuid::Uuid;
 
     use crate::{
         bucket::{Bucket, BucketClient},
         error::{Error, Result},
+        user_auth::UserId,
     };
-
-    pub type UserId = Uuid;
 
     #[derive(Debug, Clone, Copy, Getters)]
     pub struct FileUpload<'a> {
@@ -66,7 +61,7 @@ pub mod model {
             };
 
             // Create the record
-            UserUpload::new_for_upload(&self.conn, &filename, *upload.size(), upload.hash(), id)
+            UserUpload::new_for_upload(&self.conn, &filename, *upload.size(), upload.hash(), &id)
                 .await?;
 
             // The user only needs the upload url at this point.
@@ -77,8 +72,8 @@ pub mod model {
         }
 
         pub async fn get(&self, id: UserId) -> Result<(Vec<UserPhoto>, i64)> {
-            let mut user_photos = UserPhoto::get_photos(&self.conn, id.into()).await?;
-            let count = UserPhoto::count_photos(&self.conn, id).await?;
+            let mut user_photos = UserPhoto::get_photos(&self.conn, &id).await?;
+            let count = UserPhoto::count_photos(&self.conn, &id).await?;
 
             for photo in user_photos.iter_mut() {
                 match photo.thumbnail_path() {
@@ -130,11 +125,20 @@ impl From<Vec<db_storage::models::user_photos::UserPhoto>> for GalleryImagesResp
 pub struct GalleryService<'a> {
     conn: db_storage::DbConn,
     bucket: BucketClient<'a>,
+    session_middleware: SessionValidator,
 }
 
 impl<'a> GalleryService<'a> {
-    pub fn new(conn: db_storage::DbConn, bucket: BucketClient<'a>) -> GalleryService<'a> {
-        Self { conn, bucket }
+    pub fn new(
+        conn: db_storage::DbConn,
+        bucket: BucketClient<'a>,
+        session_middleware: SessionValidator,
+    ) -> GalleryService<'a> {
+        Self {
+            conn,
+            bucket,
+            session_middleware,
+        }
     }
 }
 
@@ -144,7 +148,11 @@ impl<'a> GalleryView for GalleryService<'static> {
         &self,
         request: Request<UploadImageRequest>,
     ) -> std::result::Result<Response<SignedLinkResponse>, Status> {
-        let user_id: UserId = Uuid::nil();
+        let user_id = match self.session_middleware.get_user(&request).await {
+            Ok(u) => u,
+            Err(x) => return Err(Status::unauthenticated(format!("{:?}", x))),
+        };
+        // let user_id: UserId = Uuid::nil();
         let req_info = request.get_ref();
         let file_info = FileUpload::new(&req_info.filename, &req_info.filehash, req_info.filesize);
 
@@ -163,9 +171,12 @@ impl<'a> GalleryView for GalleryService<'static> {
 
     async fn list_gallery(
         &self,
-        _request: Request<FilterGalleryRequest>,
+        request: Request<FilterGalleryRequest>,
     ) -> std::result::Result<tonic::Response<GalleryImagesResponse>, Status> {
-        let user_id: UserId = Uuid::nil();
+        let user_id = match self.session_middleware.get_user(&request).await {
+            Ok(u) => u,
+            Err(x) => return Err(Status::unauthenticated(format!("{:?}", x))),
+        };
         let get_response =
             crate::gallery_view::model::UserGallery::new(self.conn.clone(), self.bucket.clone())
                 .get(user_id)
@@ -181,9 +192,12 @@ impl<'a> GalleryView for GalleryService<'static> {
 
     async fn filter_options(
         &self,
-        _request: Request<EmptyRequest>,
+        request: Request<EmptyRequest>,
     ) -> std::result::Result<Response<FilterOptionResponse>, Status> {
-        let user_id: UserId = Uuid::nil();
+        let user_id = match self.session_middleware.get_user(&request).await {
+            Ok(u) => u,
+            Err(x) => return Err(Status::unauthenticated(format!("{:?}", x))),
+        };
         let filters =
             crate::gallery_view::model::UserGallery::new(self.conn.clone(), self.bucket.clone())
                 .filters(user_id)

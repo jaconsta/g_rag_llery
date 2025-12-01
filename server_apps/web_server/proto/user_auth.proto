@@ -5,13 +5,19 @@ service AuthGreeter {
   // Starts the cipher handshake process by returning public keys
   rpc GreetAuth(EmptyRequest) returns (ServerPublicKeys);
   rpc ExchangeAuth(UserPublicAuth) returns (UserAuthResponse);
+  rpc Logout(EmptyRequest) returns (EmptyResponse);
 }
 
 message EmptyRequest {}
+message EmptyResponse {}
 message ServerPublicKeys { string publicKey = 1; }
 message UserPublicAuth {
   string ephemeralPublicKey = 1;
   string nonce = 2;
   string message = 3;
 }
-message UserAuthResponse { string status = 1; }
+message UserAuthResponse {
+  string status = 1;
+  optional string bearer = 2;
+  optional int32 expires = 3;
+}

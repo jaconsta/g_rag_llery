@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
 }
 
 /// Http server
+/// Tasks: healthcheck enpoints only
 async fn rocket_task(mut shutdown_rx: broadcast::Receiver<()>) {
     // Http server
     let rocket_server = rocket::build()
@@ -78,17 +79,21 @@ async fn rocket_task(mut shutdown_rx: broadcast::Receiver<()>) {
 }
 
 /// gRPC server
+/// Taks: Business tasks and app facing endpoints.
 async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static config::Config) {
     log::info!("gRPC server running on port 50051.");
     let addr = "0.0.0.0:50051".parse().expect("Failed to parse address");
 
     let user_session = Arc::new(RwLock::new(UserSessions::new()));
+    // Consideration -> Move the user auth service to rocket. To enable
+    // server-wide auth interceptor.
     let greeter = user_auth::UserAuthGreeter::new(user_session.clone());
-    let _session_middleware = user_auth::SessionValidator::new(user_session);
+    let session_middleware = user_auth::SessionValidator::new(user_session);
 
     let db_pool = db_connect(&config.db().url()).await.unwrap();
     let bucket_client = bucket::BucketClient::new(&config.bucket()).unwrap();
-    let img_gallery = gallery_view::GalleryService::new(db_pool.clone(), bucket_client);
+    let img_gallery =
+        gallery_view::GalleryService::new(db_pool.clone(), bucket_client, session_middleware);
 
     let grpc_server = Server::builder()
         .add_service(user_auth::AuthGreeterServer::new(greeter))

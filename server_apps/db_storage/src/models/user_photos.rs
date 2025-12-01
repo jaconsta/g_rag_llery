@@ -1,5 +1,4 @@
 use derive_getters::Getters;
-use uuid::Uuid;
 
 use crate::errors::QueryResult;
 
@@ -18,7 +17,7 @@ struct Counted {
 }
 
 impl UserPhoto {
-    pub async fn get_photos(conn: &crate::DbConn, user_id: Uuid) -> QueryResult<Vec<Self>> {
+    pub async fn get_photos(conn: &crate::DbConn, user_id: &str) -> QueryResult<Vec<Self>> {
         Ok(sqlx::query_as!(
             UserPhoto,
             "
@@ -33,7 +32,7 @@ impl UserPhoto {
         .fetch_all(conn)
         .await?)
     }
-    pub async fn count_photos(conn: &crate::DbConn, user_id: Uuid) -> QueryResult<i64> {
+    pub async fn count_photos(conn: &crate::DbConn, user_id: &str) -> QueryResult<i64> {
         let count = sqlx::query_as!(Counted, "SELECT count(1) from gallery g join user_upload u on u.gallery_id=g.id where u.user_id=$1", user_id)
             .fetch_one(conn)
             .await?;
@@ -89,7 +88,7 @@ impl From<Vec<FilterableProperty>> for FilterableProperties {
 }
 
 impl FilterableProperties {
-    pub async fn get_for_user(conn: &crate::DbConn, user_id: Uuid) -> QueryResult<Self> {
+    pub async fn get_for_user(conn: &crate::DbConn, user_id: String) -> QueryResult<Self> {
         let filtered = sqlx::query_as!(FilterableProperty, "SELECT  distinct g.thumbnail_ratio as ratio, ge.theme as theme from gallery g join user_upload u on u.gallery_id=g.id join gallery_rag_embeddings ge on g.embeddings_id = ge.id where u.user_id=$1 group by g.thumbnail_ratio, ge.theme", user_id)
             .fetch_all(conn)
             .await?;

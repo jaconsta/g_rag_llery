@@ -1,3 +1,5 @@
+use std::ops::Add;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{array::TryFromSliceError, collections::HashMap, sync::Arc};
 
 use crypto_box::{
@@ -13,7 +15,9 @@ use tonic::{Request, Response, Status};
 
 use twox_hash::XxHash3_64;
 pub use user_auth_rpc::auth_greeter_server::{AuthGreeter, AuthGreeterServer};
-use user_auth_rpc::{EmptyRequest, ServerPublicKeys, UserAuthResponse, UserPublicAuth};
+use user_auth_rpc::{
+    EmptyRequest, EmptyResponse, ServerPublicKeys, UserAuthResponse, UserPublicAuth,
+};
 
 use crate::error::{Error, Result};
 
@@ -21,6 +25,7 @@ pub mod user_auth_rpc {
     tonic::include_proto!("user_auth"); // The string specified here must match the proto package name
 }
 
+#[derive(Debug)]
 pub struct SessionValidator {
     sessions: Arc<RwLock<UserSessions>>,
 }
@@ -28,8 +33,25 @@ impl SessionValidator {
     pub fn new(sessions: Arc<RwLock<UserSessions>>) -> Self {
         Self { sessions }
     }
-    pub async fn get_user(&self, user_id: &AuthId) -> Option<String> {
-        self.sessions.read().await.get_user(user_id).await
+
+    pub async fn get_user<T>(&self, r: &Request<T>) -> Result<UserId> {
+        let token = match get_token(r) {
+            Ok(t) => t,
+            Err(x) => return Err(x.message().into()),
+        };
+
+        let user_id = match self
+            .sessions
+            .read()
+            .await
+            .validate_user_session(token)
+            .await
+        {
+            Some(u) => u,
+            None => return Err("session expired".into()),
+        };
+
+        Ok(user_id)
     }
 }
 
@@ -92,7 +114,7 @@ impl UserAuthGreeter {
         let user_contentten = hex::decode(&user_content.message).unwrap(); // Message is cipher(ed)
         let decrypted_data = bob_box
             .decrypt(nonce, user_contentten.as_slice())
-            .map_err(|e| Error::CryptoError(e))?; //  "Decryption failed!")?;
+            .map_err(|e| Error::CryptoError(e))?; //  "Decrypt-ion failed!"?;
 
         let msg = String::from_utf8(decrypted_data)?;
         Ok(msg)
@@ -126,19 +148,51 @@ impl AuthGreeter for UserAuthGreeter {
             Err(_) => {
                 return Ok(Response::new(UserAuthResponse {
                     status: "Error".to_string(),
+                    bearer: None,
+                    expires: None,
                 }));
             }
         };
 
         match sessions.write().await.generate_new_session(user_code).await {
-            Ok(_) => Ok(Response::new(UserAuthResponse {
+            Ok((token, token_expire)) => Ok(Response::new(UserAuthResponse {
                 status: "OK".to_string(),
+                bearer: Some(token),
+                expires: Some(token_expire.as_millis() as i32),
             })),
             Err(_) => Ok(Response::new(UserAuthResponse {
                 status: "Error".to_string(),
+                bearer: None,
+                expires: None,
             })),
         }
     }
+
+    async fn logout(
+        &self,
+        request: Request<EmptyRequest>,
+    ) -> std::result::Result<Response<EmptyResponse>, Status> {
+        let jwt_token = get_token(&request)?;
+
+        self.sessions
+            .write()
+            .await
+            .from_token_and_pop(jwt_token)
+            .await;
+
+        Ok(Response::new(EmptyResponse {}))
+    }
+}
+
+pub fn get_token<'a, T>(r: &'a Request<T>) -> std::result::Result<&'a str, Status> {
+    let jwt_token = r
+        .metadata()
+        .get("x-authorization")
+        .ok_or(Status::unauthenticated("No access token specified"))?
+        .to_str()
+        .map_err(|_| Status::unauthenticated("No access token specified"))?;
+
+    Ok(jwt_token)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -146,7 +200,7 @@ struct Claims {
     // Audience
     aud: String,
     sub: String,
-    // Expiration
+    // Expiration Datetime in seconds
     exp: u64,
     // The key for User session hashmap
     user_id: String,
@@ -162,16 +216,22 @@ impl Claims {
 }
 
 /// Hash key that points to UserId in the session map.
+/// Note: Try to keep it private.
 type AuthId = u64;
 
 /// The link for the user information.
 /// The user_id stored in db tables.
-type UserId = String;
+pub type UserId = String;
 #[derive(Debug)]
 pub struct UserSessions {
+    /// In-memory storage of the user sessions.
+    /// (eventually Valkey when shared session between servers becomes necessary?)
     user_sessions: Arc<RwLock<HashMap<AuthId, UserId>>>,
-    ttl_min: u64,
+    /// Token and session expiry. In minutes.
+    ttl_mins: u64,
+    /// Signature secret for the jwt.
     jwt_secret: String,
+    /// Seed for hash map key and user_id key.
     hash_seed: u64,
 }
 
@@ -182,21 +242,29 @@ impl UserSessions {
 
         Self {
             user_sessions: Arc::new(RwLock::new(HashMap::new())),
-            ttl_min: 120,
+            ttl_mins: 120,
             jwt_secret,
             hash_seed: 0xdead_cafe,
         }
     }
 
     /// Stores the information in storage and returns JWT
-    pub async fn generate_new_session(&mut self, user_true_code: String) -> Result<String> {
-        // Maybe not best implementation
+    pub async fn generate_new_session(
+        &mut self,
+        user_true_code: String,
+    ) -> Result<(String, Duration)> {
+        // The user session id should be unique to prevent traces of it
+        // in the system.
         let user_session_id = Alphanumeric.sample_string(&mut rand::rng(), 16);
+        let since_the_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_millis(0));
+        let token_exp = since_the_epoch.add(Duration::from_mins(self.ttl_mins));
 
         let claims = Claims {
             aud: Claims::aud().into(),
             sub: Claims::sub().into(),
-            exp: 100000,
+            exp: token_exp.as_secs(),
             user_id: user_session_id.clone(),
         };
 
@@ -220,13 +288,33 @@ impl UserSessions {
         let auth_id = XxHash3_64::oneshot_with_seed(self.hash_seed, user_session_id.as_ref());
 
         self.set_user(auth_id, user_code_hash.into()).await;
+        self.timeout_pop(auth_id);
 
-        Ok(token)
+        Ok((token, token_exp))
     }
 
     /// Takes the JWT. Validate it and extract the user_id
     /// Currently the user_id is the only "business" information the JWT stores.
-    pub async fn validate_user_session(&self, jwt_token: String) -> Option<UserId> {
+    pub async fn validate_user_session(&self, jwt_token: &str) -> Option<UserId> {
+        let auth_id = match self.decode_token(jwt_token) {
+            Some(id) => id,
+            None => return None,
+        };
+
+        let user_id = self.get_user(&auth_id).await;
+
+        return user_id;
+    }
+
+    pub async fn from_token_and_pop(&mut self, jwt_token: &str) {
+        let auth_id = match self.decode_token(jwt_token) {
+            Some(id) => id,
+            None => return,
+        };
+        self.pop_user(&auth_id).await;
+    }
+
+    fn decode_token(&self, jwt_token: &str) -> Option<AuthId> {
         let mut jwt_validation = Validation::new(jsonwebtoken::Algorithm::HS256);
         jwt_validation.set_audience(&[Claims::aud()]);
         jwt_validation.sub = Some(Claims::sub().to_string());
@@ -245,7 +333,7 @@ impl UserSessions {
         let auth_id =
             XxHash3_64::oneshot_with_seed(self.hash_seed, token_data.claims.user_id.as_ref());
 
-        self.get_user(&auth_id).await
+        auth_id.into()
     }
 
     /// Expected usecase: When want to validate the current user session.
@@ -267,8 +355,8 @@ impl UserSessions {
     }
 
     /// Expected usecase: Logout the user after session expiration.
-    pub async fn timeout_pop(&mut self, auth_id: AuthId) {
-        let ttl = self.ttl_min.clone();
+    pub fn timeout_pop(&mut self, auth_id: AuthId) {
+        let ttl = self.ttl_mins.clone();
         let session = self.user_sessions.clone();
         // Currently there is no cancelation of the timeout.
         // It is assumed that if `sessions.remove` returns empty
@@ -276,6 +364,7 @@ impl UserSessions {
         let _timer = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_mins(ttl)).await;
 
+            // Not using self.pop_user because of lifetimes issue.
             let mut sessions = session.write().await;
             sessions.remove(&auth_id);
         });
