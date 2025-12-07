@@ -1,11 +1,11 @@
 use std::ops::Add;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{array::TryFromSliceError, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use crypto_box::{
-    ChaChaBox, PublicKey, SecretKey,
-    aead::{Aead, OsRng},
-};
+use hex::ToHex;
+use libsodium_rs::crypto_box::Nonce;
+use libsodium_rs::{self, SodiumError, crypto_box};
+
 use hex;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use rand::distr::{Alphanumeric, SampleString};
@@ -19,7 +19,7 @@ use user_auth_rpc::{
     EmptyRequest, EmptyResponse, ServerPublicKeys, UserAuthResponse, UserPublicAuth,
 };
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 pub mod user_auth_rpc {
     tonic::include_proto!("user_auth"); // The string specified here must match the proto package name
@@ -55,19 +55,17 @@ impl SessionValidator {
     }
 }
 
-#[derive(Debug)]
 pub struct UserAuthGreeter {
-    secret_key: SecretKey,
+    box_key_pair: crypto_box::KeyPair,
     sessions: Arc<RwLock<UserSessions>>,
 }
 
-const KEY_LEN: usize = 32;
-
 impl Default for UserAuthGreeter {
     fn default() -> Self {
-        let bob_secret = SecretKey::generate(&mut OsRng);
+        let box_key_pair = crypto_box::KeyPair::generate();
+
         Self {
-            secret_key: bob_secret,
+            box_key_pair,
             sessions: Arc::new(RwLock::new(UserSessions::new())),
         }
     }
@@ -81,43 +79,35 @@ impl UserAuthGreeter {
         }
     }
     fn get_public_key(&self) -> String {
-        let bob_public = self.secret_key.public_key();
-        let bob_public_key = hex::encode(bob_public.as_bytes());
-        bob_public_key
+        self.box_key_pair.public_key.encode_hex()
     }
 
     // Utility function to convert a hex into public or secret key
     fn hex_to_key<T>(s: &str) -> Result<T>
     where
-        T: for<'a> TryFrom<&'a [u8], Error = TryFromSliceError>,
+        T: for<'a> TryFrom<&'a [u8], Error = SodiumError>,
     {
         let bytes = hex::decode(s)?;
-        if bytes.len() != KEY_LEN {
-            return Err(Error::InvalidLength {
-                expected: KEY_LEN,
-                received: bytes.len(),
-            }
-            .into());
-        }
         let key = T::try_from(bytes.as_slice())?;
         Ok(key)
     }
 
     fn decode_message(&self, user_content: &UserPublicAuth) -> Result<String> {
-        let user_public: PublicKey =
-            UserAuthGreeter::hex_to_key(&user_content.ephemeral_public_key)?;
-        let bob_box = ChaChaBox::new(&user_public, &self.secret_key);
+        let bob_public = crypto_box::PublicKey::from_bytes(
+            hex::decode(user_content.ephemeral_public_key.as_bytes())?.as_ref(),
+        )?;
 
-        // Decrypt the message
-        let nonce = hex::decode(user_content.nonce.clone()).unwrap();
-        let nonce = nonce.as_slice().try_into()?;
-        let user_contentten = hex::decode(&user_content.message).unwrap(); // Message is cipher(ed)
-        let decrypted_data = bob_box
-            .decrypt(nonce, user_contentten.as_slice())
-            .map_err(|e| Error::CryptoError(e))?; //  "Decrypt-ion failed!"?;
+        let bob_nonce: Nonce = Self::hex_to_key(&user_content.nonce)?;
+        let cipher = hex::decode(&user_content.message)?;
 
-        let msg = String::from_utf8(decrypted_data)?;
-        Ok(msg)
+        let decrypted = crypto_box::open(
+            &cipher,
+            &bob_nonce,
+            &bob_public,
+            &self.box_key_pair.secret_key,
+        )?;
+        let decipher_message = String::from_utf8(decrypted)?;
+        Ok(decipher_message)
     }
 }
 
@@ -127,7 +117,6 @@ impl AuthGreeter for UserAuthGreeter {
         &self,
         _request: Request<EmptyRequest>,
     ) -> std::result::Result<Response<ServerPublicKeys>, Status> {
-        println!("Got a greet request");
         let public_keys = ServerPublicKeys {
             public_key: self.get_public_key(),
         };
@@ -146,11 +135,7 @@ impl AuthGreeter for UserAuthGreeter {
         let user_code = match self.decode_message(alice) {
             Ok(user_unique_code) => user_unique_code,
             Err(_) => {
-                return Ok(Response::new(UserAuthResponse {
-                    status: "Error".to_string(),
-                    bearer: None,
-                    expires: None,
-                }));
+                return Err(Status::failed_precondition("Wrong data"));
             }
         };
 
@@ -160,11 +145,7 @@ impl AuthGreeter for UserAuthGreeter {
                 bearer: Some(token),
                 expires: Some(token_expire.as_millis() as i32),
             })),
-            Err(_) => Ok(Response::new(UserAuthResponse {
-                status: "Error".to_string(),
-                bearer: None,
-                expires: None,
-            })),
+            Err(_) => Err(Status::failed_precondition("Error")),
         }
     }
 
@@ -197,12 +178,13 @@ pub fn get_token<'a, T>(r: &'a Request<T>) -> std::result::Result<&'a str, Statu
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Claims {
-    // Audience
+    // Audience.
     aud: String,
+    // Subject. Whom the token refers to.
     sub: String,
-    // Expiration Datetime in seconds
+    // Expiration Datetime in seconds.
     exp: u64,
-    // The key for User session hashmap
+    // The key for User session hashmap.
     user_id: String,
 }
 
@@ -374,9 +356,20 @@ impl UserSessions {
 #[cfg(test)]
 mod tests {
     use serde::{Deserialize, Serialize};
+    use tonic::transport::Endpoint;
 
     use super::*;
-    use crypto_box::aead::AeadCore;
+
+    static RPC_SERVER_URL: &'static str = "http://0.0.0.0:50051";
+    // Utility function to convert a hex into public or secret key
+    fn hex_to_key<T>(s: &str) -> Result<T>
+    where
+        T: for<'a> TryFrom<&'a [u8], Error = SodiumError>,
+    {
+        let bytes = hex::decode(s)?;
+        let key = T::try_from(bytes.as_slice())?;
+        Ok(key)
+    }
 
     #[derive(Serialize, Deserialize)]
     struct SecretsMessageDemo {
@@ -386,26 +379,29 @@ mod tests {
     }
 
     fn simulate_alice_aka_client(bob_public: String, message: &str) -> Result<SecretsMessageDemo> {
-        let message = message.as_bytes(); // The user "auth" key
+        let (alice_sk, alice_pk) = {
+            let alice_keypair = crypto_box::KeyPair::generate();
+            let alice_public = alice_keypair.public_key.encode_hex();
 
-        let alice_ephemeral_secret = SecretKey::generate(&mut OsRng);
-        let alice_ephemeral_public = alice_ephemeral_secret.public_key();
-        // Alice Creates a new "box" with
-        let bob_public_key: PublicKey = UserAuthGreeter::hex_to_key(bob_public.as_str())?;
-        let alice_box = ChaChaBox::new(&bob_public_key, &alice_ephemeral_secret);
+            (alice_keypair.secret_key, alice_public)
+        };
 
-        // Generate a unique nonce
-        let nonce = ChaChaBox::generate_nonce(&mut OsRng);
+        let bob_pk: crypto_box::PublicKey =
+            hex_to_key(&bob_public).expect("Failed to generate key");
 
-        // Encrypt the message
-        let ciphertext = alice_box
-            .encrypt(&nonce, message)
-            .map_err(|_| "Encryption error")?;
+        // Generate a random nonce
+        let nonce = crypto_box::Nonce::generate();
+        let shared_nonce = nonce.encode_hex::<String>();
+        let nonce: crypto_box::Nonce = hex_to_key(&shared_nonce).unwrap();
+
+        // Alice encrypts a message for Bob
+        let ciphertext = crypto_box::seal(message.as_bytes(), &nonce, &bob_pk, &alice_sk)
+            .expect("Failed to seal box");
 
         Ok(SecretsMessageDemo {
-            ephemeral_public: hex::encode(alice_ephemeral_public.as_bytes()),
-            nonce: hex::encode(nonce),
-            ciphertext: hex::encode(&ciphertext),
+            ephemeral_public: alice_pk,
+            nonce: shared_nonce,
+            ciphertext: ciphertext.encode_hex(),
         })
     }
 
@@ -425,5 +421,62 @@ mod tests {
         let decrypted_key = bob_greeter.decode_message(&alice_public_auth).unwrap();
 
         assert_eq!(alice_message, decrypted_key);
+    }
+
+    #[tokio::test]
+    async fn test_query_base_for_public_key() {
+        let channel = Endpoint::from_static(RPC_SERVER_URL)
+            .connect()
+            .await
+            .unwrap();
+
+        // Start the process.
+        let mut client = user_auth_rpc::auth_greeter_client::AuthGreeterClient::new(channel);
+        // Get the client request
+        let creds = client
+            .greet_auth(tonic::Request::new(EmptyRequest {}))
+            .await
+            .unwrap();
+
+        assert!(!creds.get_ref().public_key.is_empty());
+    }
+    #[tokio::test]
+    async fn test_generate_new_jwt_user() {
+        let channel = Endpoint::from_static(RPC_SERVER_URL)
+            .connect()
+            .await
+            .unwrap();
+
+        // Start the process.
+        let mut client = user_auth_rpc::auth_greeter_client::AuthGreeterClient::new(channel);
+
+        let creds = client
+            .greet_auth(tonic::Request::new(EmptyRequest {}))
+            .await
+            .unwrap();
+        let bob_public = creds.get_ref().public_key.clone();
+        let alice_message = "Usercode1234andMaybemin32length.";
+
+        let alice_ciphers = simulate_alice_aka_client(bob_public, alice_message).unwrap();
+        let alice_public_auth = UserPublicAuth {
+            nonce: alice_ciphers.nonce,
+            message: alice_ciphers.ciphertext,
+            ephemeral_public_key: alice_ciphers.ephemeral_public,
+        };
+
+        // Get the client for auth token request
+        let creds = client
+            .exchange_auth(tonic::Request::new(alice_public_auth))
+            .await
+            .unwrap();
+
+        let creds = creds.get_ref();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_millis(0));
+
+        assert_eq!(creds.status, "OK");
+        assert!(!creds.bearer().is_empty());
+        assert!(creds.expires() as u64 > now.as_secs());
     }
 }

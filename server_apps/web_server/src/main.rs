@@ -39,6 +39,9 @@ async fn main() -> Result<()> {
     let boxed = Box::new(configs);
     let config_s: &'static config::Config = Box::leak(boxed);
 
+    // Libsodium (Maybe move to builder)
+    libsodium_rs::ensure_init().expect("Failed to initialize libsodium.");
+
     // Shutdown handler
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
     // Spawn signal handler

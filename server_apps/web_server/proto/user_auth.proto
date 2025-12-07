@@ -18,6 +18,6 @@ message UserPublicAuth {
 }
 message UserAuthResponse {
   string status = 1;
-  optional string bearer = 2;
-  optional int32 expires = 3;
+  string bearer = 2;
+  int32 expires = 3;
 }

@@ -13,6 +13,9 @@ export const protobufPackage = "user_auth";
 export interface EmptyRequest {
 }
 
+export interface EmptyResponse {
+}
+
 export interface ServerPublicKeys {
   publicKey: string;
 }
@@ -25,6 +28,8 @@ export interface UserPublicAuth {
 
 export interface UserAuthResponse {
   status: string;
+  bearer: string;
+  expires: number;
 }
 
 function createBaseEmptyRequest(): EmptyRequest {
@@ -66,6 +71,49 @@ export const EmptyRequest: MessageFns<EmptyRequest> = {
   },
   fromPartial(_: DeepPartial<EmptyRequest>): EmptyRequest {
     const message = createBaseEmptyRequest();
+    return message;
+  },
+};
+
+function createBaseEmptyResponse(): EmptyResponse {
+  return {};
+}
+
+export const EmptyResponse: MessageFns<EmptyResponse> = {
+  encode(_: EmptyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): EmptyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseEmptyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): EmptyResponse {
+    return {};
+  },
+
+  toJSON(_: EmptyResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<EmptyResponse>): EmptyResponse {
+    return EmptyResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<EmptyResponse>): EmptyResponse {
+    const message = createBaseEmptyResponse();
     return message;
   },
 };
@@ -221,13 +269,19 @@ export const UserPublicAuth: MessageFns<UserPublicAuth> = {
 };
 
 function createBaseUserAuthResponse(): UserAuthResponse {
-  return { status: "" };
+  return { status: "", bearer: "", expires: 0 };
 }
 
 export const UserAuthResponse: MessageFns<UserAuthResponse> = {
   encode(message: UserAuthResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.status !== "") {
       writer.uint32(10).string(message.status);
+    }
+    if (message.bearer !== "") {
+      writer.uint32(18).string(message.bearer);
+    }
+    if (message.expires !== 0) {
+      writer.uint32(24).int32(message.expires);
     }
     return writer;
   },
@@ -247,6 +301,22 @@ export const UserAuthResponse: MessageFns<UserAuthResponse> = {
           message.status = reader.string();
           continue;
         }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.bearer = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.expires = reader.int32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -257,13 +327,23 @@ export const UserAuthResponse: MessageFns<UserAuthResponse> = {
   },
 
   fromJSON(object: any): UserAuthResponse {
-    return { status: isSet(object.status) ? globalThis.String(object.status) : "" };
+    return {
+      status: isSet(object.status) ? globalThis.String(object.status) : "",
+      bearer: isSet(object.bearer) ? globalThis.String(object.bearer) : "",
+      expires: isSet(object.expires) ? globalThis.Number(object.expires) : 0,
+    };
   },
 
   toJSON(message: UserAuthResponse): unknown {
     const obj: any = {};
     if (message.status !== "") {
       obj.status = message.status;
+    }
+    if (message.bearer !== "") {
+      obj.bearer = message.bearer;
+    }
+    if (message.expires !== 0) {
+      obj.expires = Math.round(message.expires);
     }
     return obj;
   },
@@ -274,6 +354,8 @@ export const UserAuthResponse: MessageFns<UserAuthResponse> = {
   fromPartial(object: DeepPartial<UserAuthResponse>): UserAuthResponse {
     const message = createBaseUserAuthResponse();
     message.status = object.status ?? "";
+    message.bearer = object.bearer ?? "";
+    message.expires = object.expires ?? 0;
     return message;
   },
 };
@@ -300,6 +382,14 @@ export const AuthGreeterDefinition = {
       responseStream: false,
       options: {},
     },
+    logout: {
+      name: "Logout",
+      requestType: EmptyRequest,
+      requestStream: false,
+      responseType: EmptyResponse,
+      responseStream: false,
+      options: {},
+    },
   },
 } as const;
 
@@ -307,12 +397,14 @@ export interface AuthGreeterServiceImplementation<CallContextExt = {}> {
   /** Starts the cipher handshake process by returning public keys */
   greetAuth(request: EmptyRequest, context: CallContext & CallContextExt): Promise<DeepPartial<ServerPublicKeys>>;
   exchangeAuth(request: UserPublicAuth, context: CallContext & CallContextExt): Promise<DeepPartial<UserAuthResponse>>;
+  logout(request: EmptyRequest, context: CallContext & CallContextExt): Promise<DeepPartial<EmptyResponse>>;
 }
 
 export interface AuthGreeterClient<CallOptionsExt = {}> {
   /** Starts the cipher handshake process by returning public keys */
   greetAuth(request: DeepPartial<EmptyRequest>, options?: CallOptions & CallOptionsExt): Promise<ServerPublicKeys>;
   exchangeAuth(request: DeepPartial<UserPublicAuth>, options?: CallOptions & CallOptionsExt): Promise<UserAuthResponse>;
+  logout(request: DeepPartial<EmptyRequest>, options?: CallOptions & CallOptionsExt): Promise<EmptyResponse>;
 }
 
 type Builtin = Date | Function | Uint8Array | string | number | boolean | undefined;

@@ -1,4 +1,14 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+	let isCodeCopied = $state(false);
+	let buttonClicked = $state(false);
+	const buttonColor = $derived(
+		buttonClicked
+			? 'bg-teal-500 hover:bg-teal-400 focus-visible:outline-teal-500'
+			: 'bg-indigo-500 hover:bg-indigo-400 focus-visible:outline-indigo-500'
+	);
+	const lenghtyKey = makeid(24);
+
 	function makeid(length: number) {
 		var result = '';
 		var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -12,14 +22,11 @@
 	async function copyToClipboard(textToCopy: string) {
 		try {
 			await navigator.clipboard.writeText(textToCopy);
-			console.log('Copied to clipboard');
+			buttonClicked = true;
 		} catch (error) {
 			console.log('Failed to copy to clipboard:', error);
 		}
 	}
-
-	let isCodeCopied = $state(false);
-	const lenghtyKey = makeid(24);
 </script>
 
 <div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">
@@ -50,8 +57,9 @@
 			<button
 				type="button"
 				onclick={() => copyToClipboard(lenghtyKey)}
-				class="rounded-md bg-indigo-500 px-3 py-1.5 text-sm/6 font-semibold text-white hover:bg-indigo-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-				>Copy</button
+				class={buttonColor +
+					'rounded-md px-3 py-1.5 text-sm/6 font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 '}
+				>{buttonClicked ? '✅ ' : ''}Copy</button
 			>
 		</div>
 
@@ -62,7 +70,7 @@
 		<div>
 			{#if isCodeCopied}
 				<a
-					href="/auth"
+					href={resolve('/auth')}
 					class="flex w-full justify-center rounded-md px-3 py-1.5 text-sm/6 font-semibold text-white {isCodeCopied
 						? 'bg-indigo-500  hover:bg-indigo-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500'
 						: 'disabled bg-gray-500'}">Sign in</a

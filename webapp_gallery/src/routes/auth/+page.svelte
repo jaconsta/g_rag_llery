@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import sodium from 'libsodium-wrappers';
 
-	let shouldHidePassword = $state(false);
+	let shouldHidePassword = $state(true);
 
 	// Cast to force the linter
 	interface Target {
@@ -80,17 +80,26 @@
 	async function handleSubmit(e: SubmitEvent) {
 		e.preventDefault();
 		const userCode = getSecretCode(e);
-		console.log('hi', userCode);
 		if (!userCode) return;
 
-		const serverPublicKey = await getAuthPublicKey();
-		console.log('me', serverPublicKey);
+		let serverPublicKey: string;
+		try {
+			serverPublicKey = await getAuthPublicKey();
+		} catch (e) {
+			console.error('serverPublicKey failed to get.');
+			console.error(e);
+			return;
+		}
 
 		const cipherBody = encryptMessage(serverPublicKey, userCode);
-		console.log('tu');
 
-		const token = await sendUserSecret(cipherBody);
-		console.log(token);
+		try {
+			const token = await sendUserSecret(cipherBody);
+			console.log('token after sendUserSecret:', token);
+		} catch (e) {
+			console.error(e);
+			return;
+		}
 	}
 </script>
 
