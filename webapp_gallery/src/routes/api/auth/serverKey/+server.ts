@@ -79,6 +79,6 @@ export const POST: RequestHandler = async ({ cookies, request }) => {
     // It should redirect the user but right now, this is an api endpoint.
     // redirect(302, '/')
   }
-  return json({ success: true }, { status: 200 });
+  return json({ success: false }, { status: 200 });
 }
 

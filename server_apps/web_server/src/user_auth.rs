@@ -142,8 +142,8 @@ impl AuthGreeter for UserAuthGreeter {
         match sessions.write().await.generate_new_session(user_code).await {
             Ok((token, token_expire)) => Ok(Response::new(UserAuthResponse {
                 status: "OK".to_string(),
-                bearer: Some(token),
-                expires: Some(token_expire.as_millis() as i32),
+                bearer: token,
+                expires: token_expire.as_millis() as u64,
             })),
             Err(_) => Err(Status::failed_precondition("Error")),
         }
@@ -455,9 +455,9 @@ mod tests {
             .await
             .unwrap();
         let bob_public = creds.get_ref().public_key.clone();
-        let alice_message = "Usercode1234andMaybemin32length.";
+        let alice_user_code = "Usercode1234andMaybemin32length.";
 
-        let alice_ciphers = simulate_alice_aka_client(bob_public, alice_message).unwrap();
+        let alice_ciphers = simulate_alice_aka_client(bob_public, alice_user_code).unwrap();
         let alice_public_auth = UserPublicAuth {
             nonce: alice_ciphers.nonce,
             message: alice_ciphers.ciphertext,
@@ -476,7 +476,7 @@ mod tests {
             .unwrap_or(Duration::from_millis(0));
 
         assert_eq!(creds.status, "OK");
-        assert!(!creds.bearer().is_empty());
-        assert!(creds.expires() as u64 > now.as_secs());
+        assert!(!creds.bearer.is_empty());
+        assert!(creds.expires > now.as_secs());
     }
 }

@@ -281,7 +281,7 @@ export const UserAuthResponse: MessageFns<UserAuthResponse> = {
       writer.uint32(18).string(message.bearer);
     }
     if (message.expires !== 0) {
-      writer.uint32(24).int32(message.expires);
+      writer.uint32(24).uint64(message.expires);
     }
     return writer;
   },
@@ -314,7 +314,7 @@ export const UserAuthResponse: MessageFns<UserAuthResponse> = {
             break;
           }
 
-          message.expires = reader.int32();
+          message.expires = longToNumber(reader.uint64());
           continue;
         }
       }
@@ -414,6 +414,17 @@ export type DeepPartial<T> = T extends Builtin ? T
   : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+function longToNumber(int64: { toString(): string }): number {
+  const num = globalThis.Number(int64.toString());
+  if (num > globalThis.Number.MAX_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
+  }
+  if (num < globalThis.Number.MIN_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is smaller than Number.MIN_SAFE_INTEGER");
+  }
+  return num;
+}
 
 function isSet(value: any): boolean {
   return value !== null && value !== undefined;
