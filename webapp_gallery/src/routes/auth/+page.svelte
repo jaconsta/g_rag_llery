@@ -1,6 +1,9 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import sodium from 'libsodium-wrappers';
+	import type { ActionResult } from '@sveltejs/kit';
+	import { resolve } from '$app/paths';
+	import { applyAction, deserialize } from '$app/forms';
+	import { invalidateAll, goto } from '$app/navigation';
 
 	let shouldHidePassword = $state(true);
 
@@ -54,9 +57,7 @@
 		success: boolean;
 		key: string;
 	}
-	interface ServerAuthResponse {
-		success: boolean;
-	}
+
 	// Queries the server for the public key
 	async function getAuthPublicKey(): Promise<string> {
 		const response = await fetch('/api/auth/serverKey');
@@ -66,19 +67,21 @@
 	}
 
 	// Sends the user auth cipher to get the session jwt
-	async function sendUserSecret(data: EncryptedMsg): Promise<string> {
-		const response = await fetch('/api/auth/serverKey', {
-			method: 'POST',
-			body: JSON.stringify(data),
-			headers: { 'Content-Type': 'application/json' }
-		});
-		const body: ServerAuthResponse = await response.json();
+	async function sendUserSecret(data: EncryptedMsg, url: string): Promise<ActionResult> {
+		const formData = new FormData();
+		formData.append('ciphertext', data.ciphertext);
+		formData.append('nonce', data.nonce);
+		formData.append('publicKey', data.publicKey);
+		const response = await fetch(url, { method: 'POST', body: formData });
 
-		return `'All good' ${body.success}`;
+		const result: ActionResult = deserialize(await response.text());
+
+		return result;
 	}
 
-	async function handleSubmit(e: SubmitEvent) {
+	async function handleSubmit(e: SubmitEvent & { currentTarget: EventTarget & HTMLFormElement }) {
 		e.preventDefault();
+		const actionUrl = e.currentTarget.action;
 		const userCode = getSecretCode(e);
 		if (!userCode) return;
 
@@ -94,8 +97,15 @@
 		const cipherBody = encryptMessage(serverPublicKey, userCode);
 
 		try {
-			const token = await sendUserSecret(cipherBody);
-			console.log('token after sendUserSecret:', token);
+			const tokenResult = await sendUserSecret(cipherBody, actionUrl);
+			if (tokenResult.type === 'success') {
+				invalidateAll();
+			} else if (tokenResult.type === 'redirect') {
+				// "Hardcoding" the redirect path to make "resolve" happy
+				goto(resolve('/'));
+			}
+
+			applyAction(tokenResult);
 		} catch (e) {
 			console.error(e);
 			return;
