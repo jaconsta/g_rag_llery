@@ -143,6 +143,15 @@
 
 <div class="mx-auto max-w-5xl rounded-lg bg-white p-5 shadow-lg">
 	<h1 class="mb-8 text-center text-3xl font-bold text-gray-800">Photo Gallery</h1>
+
+	{#if filteredPhotos.length === 0}
+		<div class="mb-8 flex flex-col items-center justify-center">
+			<p>Seems there are currently no photos to show.</p>
+			<p>It could be you should upload your first image or the analysis has not finalized.</p>
+			<p>Note: Should hide all stuff bellow</p>
+		</div>
+	{/if}
+
 	<div class="mb-8 flex flex-wrap items-center justify-center gap-4">
 		<div class="flex w-full items-center gap-2 sm:w-auto">
 			<input
@@ -201,9 +210,6 @@
 		{/if}
 	</div>
 	<div class="columns-1 gap-6 sm:columns-2 lg:columns-3">
-		<!--
-		{#each filteredPhotos.slice(0, visibleCount) as photo, i (i)}
-    -->
 		{#each filteredPhotos as photo, i (i)}
 			<div
 				class="gallery-item group relative mb-6 cursor-pointer overflow-hidden rounded-md bg-gray-50 shadow transition-shadow duration-200"

@@ -1,7 +1,8 @@
-import { fail } from "@sveltejs/kit";
+import { error } from "@sveltejs/kit";
 
-import { createChannel, createClient } from "nice-grpc";
+import { createChannel, createClient, Metadata } from "nice-grpc";
 import { type GalleryViewClient, GalleryViewDefinition, type FilterGalleryRequest } from "../../proto/gallery_view";
+import type { PageServerLoad } from "./$types";
 
 interface Photo {
   src: string,
@@ -11,13 +12,25 @@ interface Photo {
   alt: string,
 }
 
-export const load = async () => {
+export const load: PageServerLoad = async ({ cookies }) => {
+  const userSession = cookies.get('session');
+  if (!userSession) {
+    console.warn("Should redirect to login or show some demo images");
+
+    return {
+      themes: [],
+      aspects: [],
+      photos: [],
+      total: 0,
+    }
+  }
+
   let channel
   try {
     channel = createChannel(process.env["SERVER_GRPC_URL"]!);
   } catch (e) {
     console.error(e);
-    return fail(500, { message: "Failed to get gallery" });
+    return error(500, { message: "Failed to get gallery" });
   }
 
   let images;
@@ -25,11 +38,13 @@ export const load = async () => {
   try {
     const client: GalleryViewClient = createClient(GalleryViewDefinition, channel);
     const filter: FilterGalleryRequest = {};
-    images = await client.listGallery(filter);
-    filterItems = await client.filterOptions(filter);
+    // Note: Pending to add `Bearer` to the auth token.
+    const options = { metadata: Metadata({ "x-authorization": `${userSession}` }) };
+    images = await client.listGallery(filter, options);
+    filterItems = await client.filterOptions(filter, options);
   } catch (e) {
     console.error(e);
-    return fail(500, { message: "Failed to get gallery" });
+    return error(500, { message: "Failed to get gallery from the server" });
   } finally {
     channel?.close();
   }

@@ -1,10 +1,15 @@
 import type { RequestHandler } from '@sveltejs/kit';
 
-import { createChannel, createClient } from "nice-grpc";
+import { createChannel, createClient, Metadata } from "nice-grpc";
 import { type GalleryViewClient, GalleryViewDefinition, type UploadImageRequest } from "../../../proto/gallery_view";
 
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, cookies }) => {
+  const userSession = cookies.get('session');
+  if (!userSession) {
+    return new Response(JSON.stringify({ success: false }), { status: 401, headers: { "Content-type": "application/json" } });
+  }
+
   let formData;
   try {
     formData = await request.formData();
@@ -38,9 +43,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
   let signedUrl;
   try {
+    // Note: Pending to add `Bearer` to the auth token.
+    const options = { metadata: Metadata({ "x-authorization": `${userSession}` }) };
     const client: GalleryViewClient = createClient(GalleryViewDefinition, channel);
     const uploadData: UploadImageRequest = { filehash: hash, filename: name, filesize: size };
-    signedUrl = await client.uploadImage(uploadData);
+    signedUrl = await client.uploadImage(uploadData, options);
   } catch (e) {
     console.error("Provided an unsuitable", e);
     return new Response(JSON.stringify({ success: false }), { status: 500, headers: { "Content-type": "application/json" } });
