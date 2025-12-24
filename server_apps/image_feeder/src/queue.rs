@@ -61,6 +61,7 @@ pub async fn feeder_protocol(
     feed_producer: mpsc::UnboundedSender<ImageFeed>,
 ) -> Result<(), KafkaConnectionError> {
     consumer.subscribe(&topics).map_err(|err| {
+        log::error!("feeder_protocol subscriber error");
         log::error!("{err:?}");
         KafkaConnectionError::Subscribe
     })?;
@@ -87,6 +88,7 @@ pub async fn feeder_protocol(
             .recv()
             .await
             .map_err(|err| {
+                log::error!("Consumer message receive error.");
                 log::error!("{err:?}");
                 KafkaConnectionError::RecvMessage
             })?
@@ -132,7 +134,7 @@ pub async fn feeder_protocol(
 #[cfg(test)]
 mod tests {
     use rdkafka::{
-        Message, Offset, TopicPartitionList,
+        Message,
         consumer::{CommitMode, Consumer},
         producer::FutureRecord,
         util::Timeout,
@@ -150,13 +152,6 @@ mod tests {
         let consumer = create_consumer(server_path).expect("Failed to create consumer.");
         let producer = create_producer(server_path).expect("Failed to create producer.");
 
-        // let mut topic_partitions = TopicPartitionList::new();
-        // topic_partitions
-        //     .add_partition_offset("chat", 0, Offset::Offset(0))
-        //     .unwrap();
-        // consumer
-        //     .commit(&topic_partitions, CommitMode::Async)
-        //     .unwrap();
         consumer.subscribe(&[topic]).expect("Failed to subscribe.");
 
         // Setup timeout

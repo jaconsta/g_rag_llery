@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT g.thumbnail_path, g.thumbnail_ratio, ge.img_aria, ge.img_alt, ge.theme \n            from gallery g \n                join user_upload u on u.gallery_id=g.id \n                join gallery_rag_embeddings ge on g.embeddings_id = ge.id \n            where u.user_id=$1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "thumbnail_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "thumbnail_ratio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "img_aria",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "img_alt",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "theme",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "06b8dfab9c5f09dda88cd965f08c07f66ba53b4a2be0ffad54f5f28b6fa73fe2"
+}

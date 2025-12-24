@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n              UPDATE gallery_rag_embeddings SET keywords=$2, description=$3, theme=$4, img_alt=$5, img_aria=$6\n              WHERE id=$1\n          ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "TextArray",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "41f2d08d4ff05bbe726434f70361260ff5dd275476a770cddb6527cbffcd89cb"
+}

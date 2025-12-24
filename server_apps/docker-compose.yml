@@ -1,4 +1,40 @@
 services:
+  ## First-Party dependencies
+  web_server:
+    image: jaconsta/g_rag_llery_web_server 
+    build:
+      context: .
+      dockerfile: ./web_server/Dockerfile
+    env_file:
+      - image_feeder.env
+    depends_on: 
+      - db
+      - kafka
+  image_feeder:
+    image: jaconsta/g_rag_llery_image_feeder 
+    build:
+      context: .
+      dockerfile: ./image_feeder/Dockerfile
+    env_file:
+      - image_feeder.env
+    depends_on: 
+      - db
+      - kafka
+  # Probably move web_app out (It's on another folder)
+  # Or move the whole docker-compose to the parent folder
+  web_app:
+    image: jaconsta/g_rag_llery_web_app 
+    build:
+      context: ../webapp_gallery
+      dockerfile: ../webapp_gallery/Dockerfile
+    env_file:
+      - ../webapp_gallery/.env
+    ports:
+      - "3000:3000"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ORIGIN: http://localhost:3000
+  ## Third-party dependencies
   minio-server:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z 
     container_name: minio

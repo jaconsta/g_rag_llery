@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT g.* from gallery g inner join user_upload u on u.gallery_id=g.id where u.user_id=$1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "thumbnail_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "thumbnail_height",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "thumbnail_width",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "thumbnail_ratio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "embeddings_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "defe619b9e0a0ac317a01ccb72a599ad175446b3eda63668d47800acc477b342"
+}

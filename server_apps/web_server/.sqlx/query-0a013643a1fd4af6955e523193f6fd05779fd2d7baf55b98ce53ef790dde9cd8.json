@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE from gallery_rag_embeddings where id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a013643a1fd4af6955e523193f6fd05779fd2d7baf55b98ce53ef790dde9cd8"
+}

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE gallery SET path=$2, thumbnail_path=$3, thumbnail_height=$4, thumbnail_width=$5, thumbnail_ratio=$6, embeddings_id=$7,updated_at=$8 where id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int4",
+        "Int4",
+        "Text",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7084c2428428d94b19bfe124e8b49ef8f3e3e320002a48228b025c7ae85440e6"
+}

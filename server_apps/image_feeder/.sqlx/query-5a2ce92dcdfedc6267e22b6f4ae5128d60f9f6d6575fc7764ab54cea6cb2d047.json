@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT  distinct g.thumbnail_ratio as ratio, ge.theme as theme from gallery g join user_upload u on u.gallery_id=g.id join gallery_rag_embeddings ge on g.embeddings_id = ge.id where u.user_id=$1 group by g.thumbnail_ratio, ge.theme",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ratio",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "theme",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "5a2ce92dcdfedc6267e22b6f4ae5128d60f9f6d6575fc7764ab54cea6cb2d047"
+}

@@ -40,8 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kafka_url = std::env::var("KAFKA_SERVER_LISTENER").expect("Missing KAFKA_SERVER_LISTENER");
     let kafka_topic = std::env::var("KAFKA_MINIO_TOPIC").expect("Missing KAFKA_MINIO_TOPIC");
     let llm_to_use = std::env::var("USE_LLM_SERVICE").unwrap_or_else(|_| "ollama".into());
+
     let bucket_to_upload =
-        std::env::var("BUCKET_RAGGED_BUCKET").expect("Missing BUCKET_RAGGED_BUCKET");
+        std::env::var("BUCKET_RAGGED_NAME").expect("Missing BUCKET_RAGGED_NAME");
 
     tokio::spawn(async move {
         let feeder_consumer = match create_consumer(&kafka_url) {
@@ -64,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     None => {
                         log::debug!("empty message received");
 
-                        panic!();
+                         panic!();
                     }
                 };
                 log::info!("msg {:?}", msg);
