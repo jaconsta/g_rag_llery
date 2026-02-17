@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use rdkafka::{
     ClientConfig, Message, Offset,
-    client::ClientContext,
     consumer::{Consumer, StreamConsumer},
     producer::FutureProducer,
     util::Timeout,
@@ -18,23 +17,23 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum MessagingError {
-    #[error("Failed to create producer")]
-    ProducerCreate,
+    //     #[error("Failed to create producer")]
+    //     ProducerCreate,
     #[error("Failed to create consumer")]
     ConsumerCreate,
 }
 
-fn create_producer(server_path: &str) -> Result<FutureProducer, MessagingError> {
-    Ok(ClientConfig::new()
-        .set("bootstrap.servers", server_path)
-        .set("queue.buffering.max.ms", "0")
-        .create()
-        .map_err(|op| {
-            // Should probably just break the program
-            log::error!("{op:?}");
-            MessagingError::ProducerCreate
-        })?)
-}
+// fn create_producer(server_path: &str) -> Result<FutureProducer, MessagingError> {
+//     Ok(ClientConfig::new()
+//         .set("bootstrap.servers", server_path)
+//         .set("queue.buffering.max.ms", "0")
+//         .create()
+//         .map_err(|op| {
+//             // Should probably just break the program
+//             log::error!("{op:?}");
+//             MessagingError::ProducerCreate
+//         })?)
+// }
 
 pub fn create_consumer(server_path: &str) -> Result<StreamConsumer, MessagingError> {
     let group_id = std::env::var("KAFKA_GROUP_ID").unwrap_or_else(|_| {
@@ -42,8 +41,11 @@ pub fn create_consumer(server_path: &str) -> Result<StreamConsumer, MessagingErr
         log::info!("No kafka group_id provided. using {}", &group_id);
         group_id
     });
+
+    log::info!("Expected server path {:?}", server_path);
     Ok(ClientConfig::new()
-        .set("bootstrap.servers", server_path)
+        .set("bootstrap.servers", format!("{}", server_path))
+        .set("session.timeout.ms", "6000")
         .set("enable.partition.eof", "false")
         .set("group.id", group_id)
         .set_log_level(rdkafka::config::RDKafkaLogLevel::Info)
