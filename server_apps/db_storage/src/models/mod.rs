@@ -78,7 +78,7 @@ impl Gallery {
     /// Takes thumbnail , embeddings and original moved bucket information and update
     /// the record in db. Initially was 3 methods but merged them into 1 to reduce db
     /// operations.
-    /// This replaces the "initial" upload path with the "later" path. 
+    /// This replaces the "initial" upload path with the "later" path.
     /// User_uploads upload path remains unmodified for user "duplication" filter.
     pub async fn update_with_processed<'a>(
         &mut self,
@@ -110,7 +110,7 @@ impl Gallery {
         self.thumbnail_path = Some(thumbnail.path.to_string());
         self.thumbnail_height = Some(thumbnail.height);
         self.thumbnail_width = Some(thumbnail.width);
-        self.thumbnail_ratio= Some(thumbnail.ratio.to_string());
+        self.thumbnail_ratio = Some(thumbnail.ratio.to_string());
         self.embeddings_id = Some(embeddings.embeddings_id);
         self.updated_at = updated_at;
 
@@ -120,23 +120,20 @@ impl Gallery {
     /// Deletes
     /// Consumes itself to drop the value.
     pub async fn delete_one(self, conn: &crate::DbConn) -> QueryResult<()> {
-         sqlx::query!(
-            "DELETE from gallery where id=$1",
-            self.id
-        )
-        .execute(conn)
-        .await
-        .map_err(|e| {
-            log::error!("Failed on delete {e:?}");
-            QueryError::Query
-        })?;
+        sqlx::query!("DELETE from gallery where id=$1", self.id)
+            .execute(conn)
+            .await
+            .map_err(|e| {
+                log::error!("Failed on delete {e:?}");
+                QueryError::Query
+            })?;
 
         log::info!("Deleted galery id={}", self.id);
         Ok(())
     }
 
-     pub async fn list_for_user(conn: &crate::DbConn, user_id: &str) -> QueryResult<Vec<Gallery>> {
-          let user_posts = sqlx::query_as!(
+    pub async fn list_for_user(conn: &crate::DbConn, user_id: &str) -> QueryResult<Vec<Gallery>> {
+        let user_posts = sqlx::query_as!(
              Gallery,
              "SELECT g.* from gallery g inner join user_upload u on u.gallery_id=g.id where u.user_id=$1",
             user_id
@@ -144,8 +141,8 @@ impl Gallery {
          .fetch_all(conn)
          .await?;
 
-         Ok(user_posts)
-     }
+        Ok(user_posts)
+    }
 }
 
 #[derive(Debug, Clone, Getters, sqlx::FromRow)]
@@ -292,18 +289,15 @@ impl GalleryEmbeddings {
 
     // Deletes
     pub async fn delete_one(self, conn: &crate::DbConn) -> Result<(), QueryError> {
-         sqlx::query!(
-            "DELETE from gallery_rag_embeddings where id=$1",
-    self.id
-        )
-        .execute(conn)
-        .await
-        .map_err(|e| {
-            log::error!("Failed on delete {e:?}");
-            QueryError::Query
-        })?;
+        sqlx::query!("DELETE from gallery_rag_embeddings where id=$1", self.id)
+            .execute(conn)
+            .await
+            .map_err(|e| {
+                log::error!("Failed on delete {e:?}");
+                QueryError::Query
+            })?;
 
-        log::info!("Deleted gallery_rag_embeddings id={}",self.id);
+        log::info!("Deleted gallery_rag_embeddings id={}", self.id);
         Ok(())
     }
 }
@@ -320,16 +314,35 @@ pub struct UserUpload {
 }
 
 impl UserUpload {
-    pub async fn new_for_upload(conn: &crate::DbConn, filename: &str, filesize: i32, filehash: &str, user_id: &str) -> Result<UserUpload, QueryError> {
-        let user_upload = sqlx::query_as!(UserUpload, r#"
+    pub async fn new_for_upload(
+        conn: &crate::DbConn,
+        filename: &str,
+        filesize: i32,
+        filehash: &str,
+        user_id: &str,
+    ) -> Result<UserUpload, QueryError> {
+        let user_upload = sqlx::query_as!(
+            UserUpload,
+            r#"
         with inserted_upload as (
             insert into user_upload (filename, filesize, filehash, user_id)
             values ($1, $2, $3, $4)
             returning id, filename, filesize, filehash, user_id, gallery_id
         )
             SELECT id, filename, filesize, filehash, user_id, gallery_id 
-            from inserted_upload"#, filename, filesize, filehash, user_id).fetch_one(conn).await.map_err(|e| {log::error!("{e:?}"); QueryError::Query})?;
-        
+            from inserted_upload"#,
+            filename,
+            filesize,
+            filehash,
+            user_id
+        )
+        .fetch_one(conn)
+        .await
+        .map_err(|e| {
+            log::error!("{e:?}");
+            QueryError::Query
+        })?;
+
         Ok(user_upload)
     }
 
@@ -404,17 +417,22 @@ mod tests {
 
         embe.create(&conn).await.unwrap();
 
-
         // it_updates_original_feeded_after_move
         let updated_path = "/new/some/feeded.jpg";
         // it_links_thumbnail_gallery
-        let thumbnail = NewThumbnail{
-                        path: "/some/thumbnailpath.jpg", height: 3 as i32, width: 4, ratio: "portrait" } ;
+        let thumbnail = NewThumbnail {
+            path: "/some/thumbnailpath.jpg",
+            height: 3 as i32,
+            width: 4,
+            ratio: "portrait",
+        };
         // it_updates_fk_embeddings
-        let embeddings = NewEmbeddings{embeddings_id: embe.id()};
+        let embeddings = NewEmbeddings {
+            embeddings_id: embe.id(),
+        };
 
-        let r = gallery_itm.update_with_processed(
-            &conn,updated_path, thumbnail, embeddings )
+        let r = gallery_itm
+            .update_with_processed(&conn, updated_path, thumbnail, embeddings)
             .await;
         if let Err(e) = r {
             println!("{e:?}");
@@ -433,7 +451,7 @@ mod tests {
         );
 
         // Clean after
-        let _  = gallery_itm.delete_one(&conn);
+        let _ = gallery_itm.delete_one(&conn);
     }
 
     #[tokio::test]
@@ -467,7 +485,9 @@ mod tests {
         // Clean after
         let _ = gallery_itm.delete_one(&conn).await;
         for e in embe.iter().to_owned() {
-        let _ = <GalleryEmbeddings as Clone>::clone(&e).delete_one(&conn).await;
+            let _ = <GalleryEmbeddings as Clone>::clone(&e)
+                .delete_one(&conn)
+                .await;
         }
     }
 
@@ -514,4 +534,3 @@ mod tests {
         let _ = embe.delete_one(&conn).await;
     }
 }
-

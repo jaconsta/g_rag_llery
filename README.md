@@ -202,10 +202,7 @@ mc event add raggi/rag-upload/feeder arn:minio:sqs::primary:kafka \ --event s3:O
 
 ### Database
 
-Right now there are no migrations yet. The file in db_storage/src/lib.rs contains the 
-create statements to run.
-
-To access psql console (Works local only). 
+To access psql console in your local instance and create the initial database. 
 
 ```
 psql -U postgres
@@ -244,6 +241,11 @@ sqlx migrate add -r <filename>
 
 ```
 
+### Machine extra depencencies (For dev container)
+
+```
+apt install cmake protobuf-compiler
+```
 
 ### Ollama
 

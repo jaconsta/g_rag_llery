@@ -1,0 +1,5 @@
+[tools]
+node = "24"
+opentofu = "1.11"
+rust = "1.93"
+rust-analyzer = "2026-02-16"

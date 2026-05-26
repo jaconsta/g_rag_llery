@@ -16,10 +16,13 @@ impl Database {
 
 #[derive(Getters)]
 pub struct Bucket {
+    #[allow(dead_code)]
     // The following are parameters to connect
     ignore_ssl: bool,
     bucket_url: String,
+    #[allow(dead_code)]
     access_key: String,
+    #[allow(dead_code)]
     secret_key: String,
     // The following are bucket names for operations
     /// Feeded stores unprocessed data

@@ -1,3 +1,4 @@
+use db_storage::filesystem_storage::buckets;
 use tonic::{Request, Response, Status};
 
 pub use gallery_view_rpc::gallery_view_server::{GalleryView, GalleryViewServer};
@@ -7,7 +8,9 @@ use gallery_view_rpc::{
 };
 
 use crate::{
-    bucket::BucketClient,
+    bucket::{
+       //  BucketClient, 
+        local_bucket_storage},
     gallery_view::{gallery_view_rpc::GalleryImage, model::FileUpload},
     user_auth::SessionValidator,
 };
@@ -24,7 +27,7 @@ pub mod model {
     use derive_getters::Getters;
 
     use crate::{
-        bucket::{Bucket, BucketClient},
+        bucket::{Bucket, local_bucket_storage},
         error::{Error, Result},
         user_auth::UserId,
     };
@@ -44,11 +47,12 @@ pub mod model {
 
     pub struct UserGallery<'a> {
         conn: db_storage::DbConn,
-        bucket: BucketClient<'a>,
+        bucket: local_bucket_storage::BucketLocal<'a> ,// BucketClient<'a>, // Should use BucketOperations from db_storage::filesystem_storage
+                                  // or BucketClientOperations from crate::bucket
     }
 
     impl<'a> UserGallery<'a> {
-        pub fn new(db: db_storage::DbConn, bucket: BucketClient<'a>) -> Self {
+        pub fn new(db: db_storage::DbConn, bucket: local_bucket_storage::BucketLocal<'a>) -> Self {
             Self { conn: db, bucket }
         }
 
@@ -124,14 +128,15 @@ impl From<Vec<db_storage::models::user_photos::UserPhoto>> for GalleryImagesResp
 #[derive(Debug)]
 pub struct GalleryService<'a> {
     conn: db_storage::DbConn,
-    bucket: BucketClient<'a>,
+    bucket: local_bucket_storage::BucketLocal<'a>, // BucketClient<'a>,
     session_middleware: SessionValidator,
 }
 
 impl<'a> GalleryService<'a> {
     pub fn new(
         conn: db_storage::DbConn,
-        bucket: BucketClient<'a>,
+        bucket: local_bucket_storage::BucketLocal<'a>,// BucketClient<'a>, // Should use the BucketOperations trait from
+                                  // db_storage::filesystem_storage.
         session_middleware: SessionValidator,
     ) -> GalleryService<'a> {
         Self {

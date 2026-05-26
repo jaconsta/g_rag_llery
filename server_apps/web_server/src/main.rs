@@ -94,7 +94,7 @@ async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static c
     let session_middleware = user_auth::SessionValidator::new(user_session);
 
     let db_pool = db_connect(&config.db().url()).await.unwrap();
-    let bucket_client = bucket::BucketClient::new(&config.bucket()).unwrap();
+    let bucket_client = bucket::local_bucket_storage::BucketLocal::new(&config.bucket()).unwrap();
     let img_gallery =
         gallery_view::GalleryService::new(db_pool.clone(), bucket_client, session_middleware);
 

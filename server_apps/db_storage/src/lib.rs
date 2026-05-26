@@ -2,6 +2,7 @@ use errors::DbError;
 use sqlx::{Pool, Postgres, postgres::PgPoolOptions};
 
 mod errors;
+pub mod filesystem_storage;
 pub mod models;
 
 pub type DbConn = Pool<Postgres>;

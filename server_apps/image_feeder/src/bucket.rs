@@ -8,6 +8,22 @@ use uuid::Uuid;
 
 use crate::errors::BucketOperationsError;
 
+pub mod localfile {
+    use db_storage::filesystem_storage::{
+       //  LocalBlock, 
+        buckets::FilesystemBucket};
+    // Filesystem client access
+    pub fn fs_client() -> FilesystemBucket {
+        let feeder_path = std::env::var("LOCAL_FEED_PATH")
+            .expect("Local filesystem storage {LOCAL_FEED_PATH} is missing.");
+        let ragged_path = std::env::var("LOCAL_RAGGED_PATH")
+            .expect("Local filesystem storage {LOCAL_RAGGED_PATH} is missing.");
+        // let local_fs = LocalBlock::new(base_path);
+
+        let fs_bucket = FilesystemBucket::new(Some(feeder_path), Some(ragged_path));
+        fs_bucket
+    }
+}
 pub mod aws {
     use crate::errors::BucketOperationsError;
     use aws_config::{BehaviorVersion, Region, meta::region::RegionProviderChain};
