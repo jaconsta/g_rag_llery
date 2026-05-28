@@ -84,8 +84,8 @@ async fn rocket_task(mut shutdown_rx: broadcast::Receiver<()>) {
 /// gRPC server
 /// Taks: Business tasks and app facing endpoints.
 async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static config::Config) {
-    log::info!("gRPC server running on port 50051.");
-    let addr = "0.0.0.0:50051".parse().expect("Failed to parse address");
+    log::info!("gRPC server running on port {}.", config.server().grpc_port());
+    let addr = format!("0.0.0.0:{}", config.server().grpc_port()).parse().expect("Failed to parse address");
 
     let user_session = Arc::new(RwLock::new(UserSessions::new()));
     // Consideration -> Move the user auth service to rocket. To enable

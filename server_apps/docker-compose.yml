@@ -1,100 +1,53 @@
 services:
   ## First-Party dependencies
-  web_server:
-    image: jaconsta/g_rag_llery_web_server 
-    build:
-      context: .
-      dockerfile: ./web_server/Dockerfile
-    env_file:
-      - image_feeder.env
-    depends_on: 
-      - db
-      - kafka
-  image_feeder:
-    image: jaconsta/g_rag_llery_image_feeder 
-    build:
-      context: .
-      dockerfile: ./image_feeder/Dockerfile
-    env_file:
-      - image_feeder.env
-    depends_on: 
-      - db
-      - kafka
+  # web_server:
+  #   image: jaconsta/g_rag_llery_web_server 
+  #   build:
+  #     context: .
+  #     dockerfile: ./web_server/Dockerfile
+  #   env_file:
+  #     - image_feeder.env
+  #   depends_on: 
+  #     - db
+  #     - kafka
+  # image_feeder:
+  #   image: jaconsta/g_rag_llery_image_feeder 
+  #   build:
+  #     context: .
+  #     dockerfile: ./image_feeder/Dockerfile
+  #   env_file:
+  #     - image_feeder.env
+  #   depends_on: 
+  #     - db
+  #     - kafka
   # Probably move web_app out (It's on another folder)
   # Or move the whole docker-compose to the parent folder
-  web_app:
-    image: jaconsta/g_rag_llery_web_app 
-    build:
-      context: ../webapp_gallery
-      dockerfile: ../webapp_gallery/Dockerfile
-    env_file:
-      - ../webapp_gallery/.env
-    ports:
-      - "3000:3000"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ORIGIN: http://localhost:3000
-  ## Third-party dependencies
-  # minio-server:
-  #   image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z 
-  #   container_name: minio
+  # web_app:
+  #   image: jaconsta/g_rag_llery_web_app 
+  #   build:
+  #     context: ../webapp_gallery
+  #     dockerfile: ../webapp_gallery/Dockerfile
+  #   env_file:
+  #     - ../webapp_gallery/.env
   #   ports:
-  #     - "9000:9000"
-  #     - "9001:9001"
-  #   env_file:
-  #     - minio.env
-  #   command: server /data --console-address ":9001"
-  #   volumes:
-  #     - "./minio/data:/data"
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-  #     interval: 30s
-  #     timeout: 20s
-  #     retries: 3
-  #   depends_on:
-  #     - zookeeper
-  #     - kafka
-  # Pull the service but the code does not connect to it yet
-  # bucket-server:
-  #   image: docker.io/rustfs/rustfs:1.0.0-alpha.66
-  #   container_name: bucket_storage 
-  #   # ports:
-  #   #   - "9000:9000"
-  #   #   - "9001:9001"
-  #   env_file:
-  #     - minio.env
-  #   volumes:
-  #   - "./rustfs/data:/data"
-  #   - "./rustfs/logs:/var/logs/rustfs/"
-  #   healthcheck:
-  #     test:
-  #       [
-  #         "CMD",
-  #         "sh", "-c",
-  #         "curl -f http://localhost:9000/health && curl -f http://localhost:9001/health"
-  #       ]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #     start_period: 40s
-  #   depends_on:
-  #     - zookeeper
-  #     - kafka
-  #   networks:
-  #     - gallery_net
+  #     - "3000:3000"
+  #   environment:
+  #     ZOOKEEPER_CLIENT_PORT: 2181
+  #     ORIGIN: http://localhost:3000
+  ## Third-party dependencies
   db:
-    # Note!: Change this for x64 cpus from `arm64` to `amd64`
-    image: docker.io/timescale/timescaledb-ha:pg17-amd64
+    # Note!: Change this for x64 cpus from `arm64` to `amd64` (ie. pg18-amd64)
+    image: docker.io/timescale/timescaledb-ha:pg18-arm64
     ports:
-      - 5432:5432
+      - 7654:5432
     env_file:
       - db.env
-    volumes:
-      - ./postgres-data:/var/lib/postgresql/data
+    # volumes:
+    #   - ./postgres-data:/var/lib/postgresql/data
     networks:
       - gallery_net
   zookeeper:
-    image: docker.io/confluentinc/cp-zookeeper:7.7.5 
+    image: docker.io/confluentinc/cp-zookeeper:7.9.7 
     ports:
       - 2181:2181
     environment:
@@ -103,7 +56,7 @@ services:
     networks:
       - gallery_net
   kafka:
-    image: docker.io/confluentinc/cp-kafka:7.7.5
+    image: docker.io/confluentinc/cp-kafka:7.9.7
     ports:
       - 9092:9092
       - 29092:29092
@@ -116,5 +69,4 @@ networks:
   gallery_net:
     name: gallery_net
     driver: bridge
-
 
