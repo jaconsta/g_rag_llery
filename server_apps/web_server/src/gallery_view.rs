@@ -9,8 +9,9 @@ use gallery_view_rpc::{
 
 use crate::{
     bucket::{
-       //  BucketClient, 
-        local_bucket_storage},
+        //  BucketClient,
+        local_bucket_storage,
+    },
     gallery_view::{gallery_view_rpc::GalleryImage, model::FileUpload},
     user_auth::SessionValidator,
 };
@@ -47,8 +48,8 @@ pub mod model {
 
     pub struct UserGallery<'a> {
         conn: db_storage::DbConn,
-        bucket: local_bucket_storage::BucketLocal<'a> ,// BucketClient<'a>, // Should use BucketOperations from db_storage::filesystem_storage
-                                  // or BucketClientOperations from crate::bucket
+        bucket: local_bucket_storage::BucketLocal<'a>, // BucketClient<'a>, // Should use BucketOperations from db_storage::filesystem_storage
+                                                       // or BucketClientOperations from crate::bucket
     }
 
     impl<'a> UserGallery<'a> {
@@ -135,8 +136,8 @@ pub struct GalleryService<'a> {
 impl<'a> GalleryService<'a> {
     pub fn new(
         conn: db_storage::DbConn,
-        bucket: local_bucket_storage::BucketLocal<'a>,// BucketClient<'a>, // Should use the BucketOperations trait from
-                                  // db_storage::filesystem_storage.
+        bucket: local_bucket_storage::BucketLocal<'a>, // BucketClient<'a>, // Should use the BucketOperations trait from
+        // db_storage::filesystem_storage.
         session_middleware: SessionValidator,
     ) -> GalleryService<'a> {
         Self {
@@ -157,7 +158,6 @@ impl<'a> GalleryView for GalleryService<'static> {
             Ok(u) => u,
             Err(x) => return Err(Status::unauthenticated(format!("{:?}", x))),
         };
-        // let user_id: UserId = Uuid::nil();
         let req_info = request.get_ref();
         let file_info = FileUpload::new(&req_info.filename, &req_info.filehash, req_info.filesize);
 
@@ -168,9 +168,7 @@ impl<'a> GalleryView for GalleryService<'static> {
 
         match uploadurl {
             Ok(bucket_link) => Ok(Response::new(SignedLinkResponse { bucket_link })),
-            Err(_) => Ok(Response::new(SignedLinkResponse {
-                bucket_link: "None".to_string(),
-            })),
+            Err(e) => Err(Status::already_exists(e.to_string())),
         }
     }
 

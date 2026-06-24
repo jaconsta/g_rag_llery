@@ -65,6 +65,15 @@ services:
       - zookeeper
     networks:
       - gallery_net
+  nginx:
+    image: docker.io/library/nginx:latest
+    ports:
+      - 5174:80
+    volumes:
+      - ./nginx/file_server.conf:/etc/nginx/conf.d/default.conf:ro
+      - "./www-data:/data/files"
+    networks:
+      - gallery_net
 networks:
   gallery_net:
     name: gallery_net

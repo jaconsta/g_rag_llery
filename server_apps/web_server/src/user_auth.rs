@@ -224,7 +224,7 @@ impl UserSessions {
 
         Self {
             user_sessions: Arc::new(RwLock::new(HashMap::new())),
-            ttl_mins: 120,
+            ttl_mins: 1200,
             jwt_secret,
             hash_seed: 0xdead_cafe,
         }

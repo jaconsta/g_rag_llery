@@ -160,45 +160,24 @@ Or for your running consumer (feeder_service)
 
 ### Bucket storage 
 
-Use an S3 compatible storage solution called Minio.
-
-Though the setup is rather simple, the commands are server specific using their own `mc` cli.
-For the kafka connection it is necessary that the env vars are correctly setup.
+Note: S3 compatibility will be eventually brought back.
 
 
-Create an alias (raggi) and the buckets.
+It uses an nginx WebDAV server to act as a simple file host bucket.
 
-**Note**: The symbols `${XXX}` are env vars.
+The upload base folder must be setup and configured for read / write access. 
 
-```
-mc alias set raggi http://${MINIO_DOCKER_SERVICE}:${MINIO_PORT} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY}
 
-mc mb raggi/ragged-img
-mc mb raggi/rag-upload
-mc mb raggi/rag-upload/feeder
+
+```bash
+mkdir -p ./www-data/incoming
+chmod -R 777 ./www-data
+docker compose up -d
 ```
 
-Create a new user. (Protect your secrets).
-Assign the user to the alias. Assign IAM (AWS compatible) bucket permissions.
+Note 1. Consider using `chmod -R 775`  instead of 777.
 
-```
-mc admin user add raggi ${RAG_USER} ${RAG_USER_SECRET} 
-mc admin policy attach raggi readwrite  --user ${RAG_USER}
-mc admin policy detach raggi writeonly --user ${RAG_USER}
-mc admin policy detach raggi readonly --user ${RAG_USER}
-```
-
-Get the access_key / access_token for the user
-
-```
-mc admin user svcacct add raggi ${RAG_USER}
-```
-
-Add the kafka notifications.
-
-```
-mc event add raggi/rag-upload/feeder arn:minio:sqs::primary:kafka \ --event s3:ObjectCreated:*
-```
+Note 2. This is a not a safe production / "open to the internet" setup.
 
 ### Database
 

@@ -8,6 +8,8 @@ use uuid::Uuid;
 use crate::DbConn;
 use crate::errors::{QueryError, QueryResult};
 pub mod user_photos;
+pub mod user_upload;
+pub use user_upload::*;
 
 pub struct NewThumbnail<'a> {
     pub path: &'a str,
@@ -91,7 +93,7 @@ impl Gallery {
         let _ = sqlx::query!(
             "UPDATE gallery SET path=$2, thumbnail_path=$3, thumbnail_height=$4, thumbnail_width=$5, thumbnail_ratio=$6, embeddings_id=$7,updated_at=$8 where id=$1",
             self.id,
-            path, 
+            path,
             thumbnail.path,
             thumbnail.height,
             thumbnail.width,
@@ -298,82 +300,6 @@ impl GalleryEmbeddings {
             })?;
 
         log::info!("Deleted gallery_rag_embeddings id={}", self.id);
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Getters, sqlx::FromRow)]
-pub struct UserUpload {
-    id: Uuid,
-    /// Bucket path of the image used for Processing
-    filename: String,
-    filesize: i64,
-    filehash: String,
-    user_id: Option<String>,
-    gallery_id: Option<Uuid>,
-}
-
-impl UserUpload {
-    pub async fn new_for_upload(
-        conn: &crate::DbConn,
-        filename: &str,
-        filesize: i32,
-        filehash: &str,
-        user_id: &str,
-    ) -> Result<UserUpload, QueryError> {
-        let user_upload = sqlx::query_as!(
-            UserUpload,
-            r#"
-        with inserted_upload as (
-            insert into user_upload (filename, filesize, filehash, user_id)
-            values ($1, $2, $3, $4)
-            returning id, filename, filesize, filehash, user_id, gallery_id
-        )
-            SELECT id, filename, filesize, filehash, user_id, gallery_id 
-            from inserted_upload"#,
-            filename,
-            filesize,
-            filehash,
-            user_id
-        )
-        .fetch_one(conn)
-        .await
-        .map_err(|e| {
-            log::error!("{e:?}");
-            QueryError::Query
-        })?;
-
-        Ok(user_upload)
-    }
-
-    pub async fn get_by_filename(conn: &crate::DbConn, filename: &str) -> Result<Self, QueryError> {
-        let user_upload = sqlx::query_as!(UserUpload, r#"
-            SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where filename = $1"#, filename).fetch_one(conn).await.map_err(|e| {log::error!("{e:?}"); QueryError::Query})?;
-
-        Ok(user_upload)
-    }
-
-    pub async fn set_gallery_id(
-        &mut self,
-        conn: &crate::DbConn,
-        gallery_id: &Uuid,
-    ) -> Result<(), QueryError> {
-        println!("set_gallery_id {}", self.id);
-        let _ = sqlx::query!(
-            r#"
-            UPDATE user_upload set gallery_id = $1 where id = $2"#,
-            gallery_id,
-            self.id
-        )
-        .execute(conn)
-        .await
-        .map_err(|e| {
-            log::error!("{e:?}");
-            QueryError::Query
-        })?;
-
-        self.gallery_id = Some(gallery_id.clone());
-
         Ok(())
     }
 }

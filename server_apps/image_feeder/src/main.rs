@@ -1,10 +1,9 @@
-use std::io::Cursor;
+use std::{io::Cursor, time::Duration};
 
 use db_storage::{
-    DbConn, 
-    db_connect, 
-    filesystem_storage::buckets::{DownloadOpts, FilesystemBucket, UploadOpts}, 
-    models::{Gallery, GalleryEmbeddings, NewEmbeddings, NewThumbnail, UserUpload}
+    DbConn, db_connect,
+    filesystem_storage::buckets::{DownloadOpts, FilesystemBucket, UploadOpts},
+    models::{Gallery, GalleryEmbeddings, NewEmbeddings, NewThumbnail, UserUpload},
 };
 use embeddings::get_img_embeddings;
 use image::DynamicImage;
@@ -15,7 +14,7 @@ use queue::{create_consumer, feeder_protocol};
 use simple_logger::SimpleLogger;
 use tokio::sync::mpsc;
 
-use crate::{queue_messages::ImageFeed};
+use crate::queue_messages::ImageFeed;
 
 mod bucket;
 mod embeddings;
@@ -31,10 +30,12 @@ async fn process_new_file(
     msg: ImageFeed,
     bucket_to_upload: &str,
     db_pool: &DbConn,
-    genai_tx: mpsc::UnboundedSender::<(DynamicImage, GalleryEmbeddings)>
+    genai_tx: mpsc::UnboundedSender<(DynamicImage, GalleryEmbeddings)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let feeder_path = std::env::var("LOCAL_FEEDER_PATH").expect("Missing LOCAL_FEEDER_PATH");
-    let ragged_path = std::env::var("LOCAL_RAGGED_PATH").expect("Missing LOCAL_RAGGED_PATH");
+    // let nginx_url = std::env::var("NGINX_BUCKET_URL")
+    //     .expect("Local filesystem storage {NGINX_BUCKET_URL} is missing.");
+    let feeder_path = std::env::var("BUCKET_FEEDER_NAME").expect("Missing BUCKET_FEEDER_NAME");
+    let ragged_path = std::env::var("BUCKET_RAGGED_NAME").expect("Missing BUCKET_RAGGED_NAME");
     let fs_bucket = FilesystemBucket::new(Some(feeder_path.clone()), Some(ragged_path));
 
     // let file_bytes = download(&msg.filename).await?;
@@ -98,7 +99,7 @@ async fn generate_image_embeddings(
     msg: (DynamicImage, GalleryEmbeddings),
     llm_to_use: &str,
     db_pool: &DbConn,
-) -> Result<(), Box<dyn std::error::Error>>{
+) -> Result<(), Box<dyn std::error::Error>> {
     let (img_thumbnail, img_embeddings) = msg;
 
     let structured = match llm_to_use {
@@ -134,9 +135,30 @@ async fn generate_image_embeddings(
             &structures.alt,
             &structures.caption,
         )
-        .await{
+        .await
+    {
         println!("img_embeddings error: {e:?}")
+    };
+
+    Ok(())
+}
+
+pub async fn db_feed_protocol(
+    db_pool: &DbConn,
+    feed_producer: mpsc::UnboundedSender<ImageFeed>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let up = UserUpload::get_unprocessed(db_pool, None).await?;
+    up.iter().for_each(|img| {
+        let im = ImageFeed {
+            filename: img.filename().clone(),
+            content_type: "".to_string(),
+            bucket: "".to_string(),
         };
+
+        if let Err(err) = feed_producer.send(im) {
+            log::error!("{err:?}");
+        }
+    });
 
     Ok(())
 }
@@ -158,19 +180,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bucket_to_upload = std::env::var("BUCKET_RAGGED_NAME").expect("Missing BUCKET_RAGGED_NAME");
 
+    let db_pool = db_connect(&pg_url).await?;
+
+    let kafka_feeder_tx = feeder_tx.clone();
     tokio::spawn(async move {
+        // Note, willl probably deprecate kafka consuming, while finding a way to manually trigger the
+        // upload.
         let feeder_consumer = match create_consumer(&kafka_url) {
             Ok(f) => f,
             Err(_) => todo!(),
         };
 
-        if let Err(_err) = feeder_protocol(feeder_consumer, vec![&kafka_topic], feeder_tx).await {
+        if let Err(_err) =
+            feeder_protocol(feeder_consumer, vec![&kafka_topic], kafka_feeder_tx).await
+        {
             log::error!("Error on the feeder");
             panic!();
         };
     });
 
-    let db_pool = db_connect(&pg_url).await?;
+    let feed_db_pool = db_pool.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(_err) = db_feed_protocol(&feed_db_pool, feeder_tx.clone()).await {
+                log::error!("Error on the feeder");
+                panic!();
+            };
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    });
+
     loop {
         tokio::select! {
             msg = feeder_rx.recv() => {

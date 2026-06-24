@@ -10,10 +10,14 @@ use crate::errors::BucketOperationsError;
 
 pub mod localfile {
     use db_storage::filesystem_storage::{
-       //  LocalBlock, 
-        buckets::FilesystemBucket};
+        //  LocalBlock,
+        buckets::FilesystemBucket,
+    };
     // Filesystem client access
     pub fn fs_client() -> FilesystemBucket {
+        let nginx_url = std::env::var("NGINX_BUCKET_URL")
+            .expect("Local filesystem storage {NGINX_BUCKET_URL} is missing.");
+
         let feeder_path = std::env::var("LOCAL_FEED_PATH")
             .expect("Local filesystem storage {LOCAL_FEED_PATH} is missing.");
         let ragged_path = std::env::var("LOCAL_RAGGED_PATH")
@@ -194,7 +198,7 @@ pub async fn upload(
 ) -> Result<(), BucketOperationsError> {
     let client = b3_client();
     // This double thing makes not much sense.
-    let bucket_name = std::env::var("BUCKET_RAGGED_BUCKET").unwrap_or("rag-processed".to_string());
+    let bucket_name = std::env::var("BUCKET_RAGGED_NAME").unwrap_or("rag-processed".to_string());
     let bucket = bucket.unwrap_or(&bucket_name);
     client
         .put_object_content(bucket, filename, bytes)

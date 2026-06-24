@@ -17,11 +17,10 @@ struct Buckets<'a> {
     ragged: &'a str,
 }
 
-
 // #[async::trait]
 trait BucketClientOperations {
-     fn get_upload_signed_url(&self, filename: &str, bucket: Bucket) -> Result<String> ;
-     fn get_download_signed_url(&self, filename: &str, bucket: Bucket) -> Result<String>;
+    fn get_upload_signed_url(&self, filename: &str, bucket: Bucket) -> Result<String>;
+    fn get_download_signed_url(&self, filename: &str, bucket: Bucket) -> Result<String>;
 }
 
 // // Deprecated:: DeleteMe
@@ -31,7 +30,7 @@ trait BucketClientOperations {
 //     buckets: Buckets<'a>,
 //     expiry_url_secs: u32,
 // }
-// 
+//
 // impl<'a> BucketClient<'a> {
 //     pub fn new(config: &'a BucketConfig) -> Result<BucketClient<'a>> {
 //         let url: BaseUrl = config.bucket_url().parse()?;
@@ -41,7 +40,7 @@ trait BucketClientOperations {
 //             .provider(Some(Box::new(credentials)))
 //             .ignore_cert_check(Some(*config.ignore_ssl()))
 //             .build()?;
-// 
+//
 //         Ok(Self {
 //             client,
 //             buckets: Buckets {
@@ -51,14 +50,14 @@ trait BucketClientOperations {
 //             expiry_url_secs: 300,
 //         })
 //     }
-// 
+//
 //     pub fn bucket(&self, b: Bucket) -> &str {
 //         match b {
 //             Bucket::Feeder => self.buckets.feeder,
 //             Bucket::Ragged => self.buckets.ragged,
 //         }
 //     }
-// 
+//
 //     pub async fn get_upload_signed_url(&self, filename: &str, bucket: Bucket) -> Result<String> {
 //         let signed = self
 //             .client
@@ -68,7 +67,7 @@ trait BucketClientOperations {
 //             .await?;
 //         Ok(signed.url)
 //     }
-// 
+//
 //     pub async fn get_download_signed_url(&self, filename: &str, bucket: Bucket) -> Result<String> {
 //         let signed = self
 //             .client
@@ -97,6 +96,7 @@ pub mod local_bucket_storage {
 
     impl<'a> BucketLocal<'a> {
         pub fn new(config: &'a BucketConfig) -> Result<BucketLocal<'a>> {
+            // Maybe this could be deleted
             let url: String = config.bucket_url().parse()?;
             let client =
                 buckets::FilesystemBucket::new(Some(url), Some(config.ragged_bucket().clone()));

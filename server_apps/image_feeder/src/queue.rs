@@ -76,14 +76,14 @@ pub async fn feeder_protocol(
     let seek_topic = std::env::var("KAFKA_MINIO_TOPIC").unwrap_or(String::from("minio-topic"));
     // start a Kafka consumer in Rust from a specific offset.
     // This one keeps failing to me due to "wrong partition"
-    if let Err(err) = consumer.seek(
-        &seek_topic,
-        0,
-        Offset::Beginning,
-        Timeout::After(Duration::from_secs(5)),
-    ) {
-        log::error!("Error (topic: {seek_topic}) requesting the offset.\n{err:#?}");
-    }
+    // if let Err(err) = consumer.seek(
+    //     &seek_topic,
+    //     0,
+    //     Offset::Beginning,
+    //     Timeout::After(Duration::from_secs(5)),
+    // ) {
+    //     log::error!("Error (topic: {seek_topic}) requesting the offset.\n{err:#?}");
+    // }
 
     loop {
         let message = consumer

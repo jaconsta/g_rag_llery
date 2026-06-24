@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -37,11 +37,24 @@ impl LocalBlock {
         LocalBlock { base_path }
     }
 
+    async fn create_folder_if_missing(&self, filename_path: &PathBuf) -> Result<(), BucketError> {
+        let folder = {
+            let mut p = filename_path.clone();
+            p.pop();
+            p
+        };
+        fs::create_dir_all(folder).await?;
+
+        Ok(())
+    }
+
     /// Add a new file.
     pub async fn insert_file(&self, file_name: &str, data: &[u8]) -> Result<(), BucketError> {
         let path = Path::new(&self.base_path).join(file_name);
-        let mut file = File::create_new(path).await?;
 
+        self.create_folder_if_missing(&path).await?;
+
+        let mut file = File::create_new(path).await?;
         let _ = file.write_all(data).await;
 
         Ok(())
@@ -56,15 +69,11 @@ impl LocalBlock {
     }
 
     /// Move (rename) a file.
-    pub async fn move_file(
-        &self,
-        filename: &str,
-        into_bucket: &str,
-    ) -> Result<(), BucketError> {
-        let from_path = Path::new(&self.base_path)
-            .join(filename);
-        let into_path = Path::new(into_bucket) 
-            .join(filename);
+    pub async fn move_file(&self, filename: &str, into_file: &str) -> Result<(), BucketError> {
+        let from_path = Path::new(&self.base_path).join("rag-upload").join(filename);
+        let into_path = Path::new(&self.base_path).join(into_file);
+                                                                    
+        self.create_folder_if_missing(&into_path).await?;
 
         Ok(fs::rename(from_path, into_path).await?)
     }
@@ -78,7 +87,6 @@ impl LocalBlock {
 }
 
 pub mod buckets {
-    // use core::hash;
     use std::path::Path;
 
     use super::LocalBlock;
@@ -115,17 +123,14 @@ pub mod buckets {
     }
     impl<'a> UploadSignedUrlOpts<'a> {
         pub fn new(filename: &'a str, bucket: &'a str) -> UploadSignedUrlOpts<'a> {
-            Self {
-                filename,
-                bucket,
-            }
+            Self { filename, bucket }
         }
     }
 
     trait BucketOperations {
         fn upload(opts: UploadOpts<'_>) -> Result<(), BucketError>;
         fn download(opts: DownloadOpts<'_>) -> Result<Vec<u8>, BucketError>;
-        fn move_to_ragged(filename: &str) -> Result<(),BucketError>;
+        fn move_to_ragged(filename: &str) -> Result<(), BucketError>;
     }
 
     #[derive(Debug, Clone)]
@@ -137,7 +142,10 @@ pub mod buckets {
 
     impl FilesystemBucket {
         pub fn new(base_path: Option<String>, ragged_path: Option<String>) -> Self {
-            let base_path = base_path.unwrap_or("/tmp/g_rag_lerry".into());
+            let base_path = match base_path {
+                Some(_) => format!("../www-data/incoming",),
+                _ => "/tmp/g_rag_lerry".to_string(),
+            };
             FilesystemBucket {
                 bucket: LocalBlock::new(base_path),
                 ragged_path,
@@ -153,6 +161,7 @@ pub mod buckets {
         }
         pub async fn upload(&self, opts: UploadOpts<'_>) -> Result<(), BucketError> {
             let path = self.build_path(opts.bucket, opts.filename)?;
+            println!("FilesystemBucket.upload path: {path:?}");
             let _ = self.bucket.insert_file(&path, &opts.bytes).await;
 
             Ok(())
@@ -164,31 +173,33 @@ pub mod buckets {
         }
 
         /// Move the file into a the ragged bucket, returns the destination path.
-        pub async fn move_to_ragged(
-            &self,
-            filename: &str,
-        ) -> Result<String, BucketError> {
+        pub async fn move_to_ragged(&self, filename: &str) -> Result<String, BucketError> {
             if let Some(into_bucket) = &self.ragged_path {
-                let into_path = self.build_path(into_bucket, filename)?;
+                println!("move_to_ragged, into_bucket: {into_bucket}");
+                let into_path_file = self.build_path(into_bucket, filename)?;
 
-                let _ = self.bucket.move_file(filename, &into_path).await;
-                Ok(into_path)
+                let _ = self.bucket.move_file(filename, &into_path_file).await;
+                Ok(into_path_file)
             } else {
+                println!("Move_to_ragged. there id no into_bucket");
                 Err(BucketError::Str)
             }
         }
 
         // Reference for a local nginx that serves as the a party storage service.
-        // https://stackoverflow.com/questions/43241067/upload-files-to-nginx#70432807
-        pub async fn get_upload_signed_url(&self, opts: UploadSignedUrlOpts<'_>) -> Result<String, BucketError>{
-                let into_path = self.build_path(opts.bucket, opts.filename)?;
-                Ok(into_path)
+        pub async fn get_upload_signed_url(
+            &self,
+            opts: UploadSignedUrlOpts<'_>,
+        ) -> Result<String, BucketError> {
+            let into_path = self.build_path(opts.bucket, opts.filename)?;
+            Ok(format!("http://localhost:5174/upload/{into_path}"))
         }
 
-        pub async fn get_download_signed_url(&self, opts: UploadSignedUrlOpts<'_>) -> Result<String, BucketError>{
+        pub async fn get_download_signed_url(
+            &self,
+            opts: UploadSignedUrlOpts<'_>,
+        ) -> Result<String, BucketError> {
             self.get_upload_signed_url(opts).await
-                //let into_path = self.build_path(opts.bucket, opts.filename)?;
-                //Ok(into_path)
         }
     }
 }
