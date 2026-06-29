@@ -96,10 +96,8 @@ pub mod local_bucket_storage {
 
     impl<'a> BucketLocal<'a> {
         pub fn new(config: &'a BucketConfig) -> Result<BucketLocal<'a>> {
-            // Maybe this could be deleted
-            let url: String = config.bucket_url().parse()?;
             let client =
-                buckets::FilesystemBucket::new(Some(url), Some(config.ragged_bucket().clone()));
+                buckets::FilesystemBucket::new(Some(config.filesystem_path().clone()), Some(config.ragged_bucket().clone()));
 
             Ok(Self {
                 client,

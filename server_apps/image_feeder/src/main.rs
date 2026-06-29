@@ -32,13 +32,12 @@ async fn process_new_file(
     db_pool: &DbConn,
     genai_tx: mpsc::UnboundedSender<(DynamicImage, GalleryEmbeddings)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // let nginx_url = std::env::var("NGINX_BUCKET_URL")
-    //     .expect("Local filesystem storage {NGINX_BUCKET_URL} is missing.");
     let feeder_path = std::env::var("BUCKET_FEEDER_NAME").expect("Missing BUCKET_FEEDER_NAME");
     let ragged_path = std::env::var("BUCKET_RAGGED_NAME").expect("Missing BUCKET_RAGGED_NAME");
-    let fs_bucket = FilesystemBucket::new(Some(feeder_path.clone()), Some(ragged_path));
+    let filesystem_bucket_path =
+        std::env::var("FILESYSTEM_BUCKET").unwrap_or("../www-data/incoming".into());
+    let fs_bucket = FilesystemBucket::new(Some(filesystem_bucket_path), Some(ragged_path));
 
-    // let file_bytes = download(&msg.filename).await?;
     let down_opts = DownloadOpts::new(&msg.filename, &feeder_path);
     let file_bytes = fs_bucket.download(down_opts).await?;
 
@@ -56,25 +55,23 @@ async fn process_new_file(
     let _ = thumbnail_512p
         .image()
         .write_to(&mut Cursor::new(&mut webp_bytes), image::ImageFormat::WebP);
-    let thumbnail_name = format!("thumbnail/{}.webp", uuid::Uuid::new_v4().to_string());
+    let thumbnail_name = format!("thumbnail/{}.webp", uuid::Uuid::new_v4());
 
-    let up_opts = UploadOpts::new(&thumbnail_name, webp_bytes, &bucket_to_upload);
-    let _ = fs_bucket.upload(up_opts).await?;
+    let up_opts = UploadOpts::new(&thumbnail_name, webp_bytes, bucket_to_upload);
+    let _ = fs_bucket.upload(up_opts).await;
 
     // Create db records
-    let mut img_gallery = Gallery::new(&msg.filename).create(&db_pool).await?;
-    user_info
-        .set_gallery_id(&db_pool, &img_gallery.id())
-        .await?;
+    let mut img_gallery = Gallery::new(&msg.filename).create(db_pool).await?;
+    user_info.set_gallery_id(db_pool, img_gallery.id()).await?;
 
     let mut img_embeddings = GalleryEmbeddings::new(thumbnail_name.clone(), embeddings);
-    img_embeddings.create(&db_pool).await?;
+    img_embeddings.create(db_pool).await?;
 
     let moved_feeded_img_filepath = fs_bucket.move_to_ragged(&msg.filename).await?;
 
     img_gallery
         .update_with_processed(
-            &db_pool,
+            db_pool,
             &moved_feeded_img_filepath,
             NewThumbnail {
                 path: &thumbnail_name,
@@ -105,16 +102,12 @@ async fn generate_image_embeddings(
     let structured = match llm_to_use {
         "openai" => {
             let img_str = to_base64(&img_thumbnail);
-            let structured_output =
-                fetch_description(&img_str, ImagePrompt::SemiStructured).await?;
-            structured_output
+            fetch_description(&img_str, ImagePrompt::SemiStructured).await?
         }
         _ => {
             // Ollama
             let ollama_str = to_llava_base64(&img_thumbnail);
-            let ollama_structured =
-                fetch_llava_description(&ollama_str, ImagePrompt::SemiStructured).await?;
-            ollama_structured
+            fetch_llava_description(&ollama_str, ImagePrompt::SemiStructured).await?
         }
     };
 
@@ -217,7 +210,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Some(m) => m,
                     None => {
                         log::debug!("empty message received");
-
                          panic!();
                     }
                 };

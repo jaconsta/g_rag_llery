@@ -1,15 +1,15 @@
-use crate::error::Result;
 use derive_getters::Getters;
 use rand::distr::{Alphanumeric, SampleString};
 
 #[derive(Getters)]
 pub struct Server {
+    /// Port where the GRPC server listens to.
     grpc_port: String,
 }
 
-impl Server{
+impl Server {
     fn from_env() -> Self {
-        let grpc_port= std::env::var("SERVER_GRPC_PORT").unwrap_or("4200".to_string());
+        let grpc_port = std::env::var("SERVER_GRPC_PORT").unwrap_or("4200".to_string());
 
         Self { grpc_port }
     }
@@ -17,14 +17,15 @@ impl Server{
 
 #[derive(Getters)]
 pub struct Database {
+    /// Database connection string
     url: String,
 }
 
 impl Database {
     fn from_env() -> Self {
-        let pg_url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
+        let url = std::env::var("DATABASE_URL").expect("Missing DATABASE_URL");
 
-        Self { url: pg_url }
+        Self { url }
     }
 }
 
@@ -44,23 +45,31 @@ impl Auth {
         let ttl_mins_default = 1200;
         let hash_seed_default = 0xdead_cafe;
 
-        let ttl_mins = match std::env::var("AUTH_TTL_MINS").unwrap_or(format!("{}", ttl_mins_default)).parse(){
-            Ok(ttl)=> ttl,
+        let ttl_mins = match std::env::var("AUTH_TTL_MINS")
+            .unwrap_or(format!("{}", ttl_mins_default))
+            .parse()
+        {
+            Ok(ttl) => ttl,
             Err(_) => {
                 println!("AUTH_TTL_MINS accepts only numbers");
                 ttl_mins_default
             }
         };
         let jwt_secret = std::env::var("AUTH_JWT_SECRET").unwrap_or(jwt_secret_default);
-        let hash_seed = match u64::from_str_radix(std::env::var("AUTH_HASH_SEED").unwrap_or(format!("{}", hash_seed_default)).as_str(), 16) {
-            Ok(seed)=> seed,
+        let hash_seed = match u64::from_str_radix(
+            std::env::var("AUTH_HASH_SEED")
+                .unwrap_or(format!("{}", hash_seed_default))
+                .as_str(),
+            16,
+        ) {
+            Ok(seed) => seed,
             Err(_) => {
                 println!("AUTH_HASH_SEED accepts only hexadecimal numbers. ie: 0x1234_cdef");
                 hash_seed_default
             }
         };
 
-        Self { 
+        Self {
             ttl_mins,
             jwt_secret,
             hash_seed,
@@ -70,15 +79,7 @@ impl Auth {
 
 #[derive(Getters)]
 pub struct Bucket {
-    #[allow(dead_code)]
-    // The following are parameters to connect
-    ignore_ssl: bool,
-    bucket_url: String,
-    #[allow(dead_code)]
-    access_key: String,
-    #[allow(dead_code)]
-    secret_key: String,
-    // The following are bucket names for operations
+    filesystem_path: String,
     /// Feeded stores unprocessed data
     feeder_bucket: String,
     /// Ragged stores curated and data after the rag processing
@@ -86,19 +87,12 @@ pub struct Bucket {
 }
 
 impl Bucket {
-    fn from_env() -> Result<Self> {
-        let bucket_check_ssl = std::env::var("MINIO_CHECK_SSL").unwrap_or("true".to_string());
-        let ignore_ssl = bucket_check_ssl == "false";
-
-        // Note, do I need it? db_storage knows about the bucket
-        Ok(Self {
-            ignore_ssl,
-            bucket_url: String::from("delme"),
-            access_key: String::from("delme"),
-            secret_key: String::from("delme"),
-            feeder_bucket:std::env::var("BUCKET_FEEDER_NAME")?,
-            ragged_bucket: std::env::var("BUCKET_RAGGED_NAME")?,
-        })
+    fn from_env() -> Self {
+        Self {
+            filesystem_path: std::env::var("FILESYSTEM_BUCKET").unwrap_or("../www-data/incoming".into()),
+            feeder_bucket: std::env::var("BUCKET_FEEDER_NAME").unwrap_or("rag_upload".into()),
+            ragged_bucket: std::env::var("BUCKET_RAGGED_NAME").unwrap_or("rag_processed".into()),
+        }
     }
 }
 
@@ -112,10 +106,9 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        // Eventually solve the unwraps
         Self {
             server: Server::from_env(),
-            bucket: Bucket::from_env().unwrap(),
+            bucket: Bucket::from_env(),
             db: Database::from_env(),
             auth: Auth::from_env(),
         }

@@ -1,6 +1,6 @@
 use std::ops::Add;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use hex::ToHex;
 use libsodium_rs::crypto_box::Nonce;
@@ -27,15 +27,11 @@ pub mod user_auth_rpc {
 
 #[derive(Debug)]
 pub struct SessionValidator {
-    jwt_service: Arc<JwtService>
+    jwt_service: Arc<JwtService>,
 }
 impl SessionValidator {
-    pub fn new(
-        jwt_service: Arc<JwtService>
-         ) -> Self {
-        Self { 
-            jwt_service,
-        }
+    pub fn new(jwt_service: Arc<JwtService>) -> Self {
+        Self { jwt_service }
     }
 
     pub async fn get_user<T>(&self, r: &Request<T>) -> Result<UserId> {
@@ -44,9 +40,9 @@ impl SessionValidator {
             Err(x) => return Err(x.message().into()),
         };
 
-        let user_id = match self.jwt_service.validate_user_session(token).await{
-             Some(u) => u,
-             None => return Err("Invalid token provided".into()),
+        let user_id = match self.jwt_service.validate_user_session(token).await {
+            Some(u) => u,
+            None => return Err("Invalid token provided".into()),
         };
 
         Ok(user_id)
@@ -64,7 +60,7 @@ impl Default for UserAuthGreeter {
 
         Self {
             box_key_pair,
-            jwt_service: Arc::new(JwtService::new()), 
+            jwt_service: Arc::new(JwtService::new()),
         }
     }
 }
@@ -136,7 +132,7 @@ impl AuthGreeter for UserAuthGreeter {
             }
         };
 
-        match self.jwt_service.generate_new_session(user_code){
+        match self.jwt_service.generate_new_session(user_code) {
             Ok((token, token_expire)) => Ok(Response::new(UserAuthResponse {
                 status: "OK".to_string(),
                 bearer: token,
@@ -195,7 +191,7 @@ impl Claims {
 pub type UserId = String;
 
 #[derive(Debug)]
-pub struct JwtService { 
+pub struct JwtService {
     /// Token and session expiry. In minutes.
     ttl_mins: u64,
     /// Signature secret for the jwt.
@@ -205,7 +201,7 @@ pub struct JwtService {
 }
 
 impl JwtService {
-    pub fn new(auth_config: &Auth) -> Self{
+    pub fn new(auth_config: &Auth) -> Self {
         Self {
             ttl_mins: *auth_config.ttl_mins(),
             jwt_secret: auth_config.jwt_secret().clone(),
@@ -214,10 +210,7 @@ impl JwtService {
     }
 
     /// Generates a new JWT
-    pub fn generate_new_session(
-        &self,
-        user_true_code: String,
-    ) -> Result<(String, Duration)> {
+    pub fn generate_new_session(&self, user_true_code: String) -> Result<(String, Duration)> {
         // The user session id should be unique to prevent traces of it
         // in the system.
         let user_session_id = Alphanumeric.sample_string(&mut rand::rng(), 16);
@@ -256,7 +249,8 @@ impl JwtService {
         Some(claims.user_id)
     }
 
-    fn decode_token(&self, jwt_token: &str) -> Option<Claims> { // AuthId> {
+    fn decode_token(&self, jwt_token: &str) -> Option<Claims> {
+        // AuthId> {
         let mut jwt_validation = Validation::new(jsonwebtoken::Algorithm::HS256);
         jwt_validation.set_audience(&[Claims::aud()]);
         jwt_validation.sub = Some(Claims::sub().to_string());
@@ -274,12 +268,12 @@ impl JwtService {
         Some(token_data.claims)
     }
 
-    fn hash_user_id(self, user_id: UserId)-> String {
-         // Maybe change the hash function.
-         // Something like Blake3 (fast) or Argon2 (passwords)
-         let hashed = XxHash3_64::oneshot_with_seed(self.hash_seed, user_id.as_bytes());
-         // Hex representation.
-         let user_code_hash = format!("{:x}", hashed);
+    fn hash_user_id(self, user_id: UserId) -> String {
+        // Maybe change the hash function.
+        // Something like Blake3 (fast) or Argon2 (passwords)
+        let hashed = XxHash3_64::oneshot_with_seed(self.hash_seed, user_id.as_bytes());
+        // Hex representation.
+        let user_code_hash = format!("{:x}", hashed);
         user_code_hash
     }
 }

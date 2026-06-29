@@ -7,12 +7,10 @@ use db_storage::db_connect;
 use serde_json::Value;
 use serde_json::json;
 use simple_logger::SimpleLogger;
-use tokio::sync::RwLock;
 use tokio::{signal, sync::broadcast};
 use tonic::transport::Server;
 
 use crate::error::Result;
-// use crate::user_auth::UserSessions;
 use crate::user_auth::JwtService;
 
 mod bucket;
@@ -40,7 +38,7 @@ async fn main() -> Result<()> {
     let boxed = Box::new(configs);
     let config_s: &'static config::Config = Box::leak(boxed);
 
-    // Libsodium init 
+    // Libsodium init
     libsodium_rs::ensure_init().expect("Failed to initialize libsodium.");
 
     // Shutdown handler
@@ -85,8 +83,13 @@ async fn rocket_task(mut shutdown_rx: broadcast::Receiver<()>) {
 /// gRPC server
 /// Taks: Business tasks and app facing endpoints.
 async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static config::Config) {
-    log::info!("gRPC server running on port {}.", config.server().grpc_port());
-    let addr = format!("0.0.0.0:{}", config.server().grpc_port()).parse().expect("Failed to parse address");
+    log::info!(
+        "gRPC server running on port {}.",
+        config.server().grpc_port()
+    );
+    let addr = format!("0.0.0.0:{}", config.server().grpc_port())
+        .parse()
+        .expect("Failed to parse address");
 
     let jwt_service = Arc::new(JwtService::new(config.auth()));
     let auth_rpc_service = user_auth::UserAuthGreeter::new(jwt_service.clone());
@@ -99,7 +102,9 @@ async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static c
 
     let grpc_server = Server::builder()
         .add_service(user_auth::AuthGreeterServer::new(auth_rpc_service))
-        .add_service(gallery_view::GalleryViewServer::new(img_gallery_rpc_service))
+        .add_service(gallery_view::GalleryViewServer::new(
+            img_gallery_rpc_service,
+        ))
         .serve(addr);
 
     tokio::select! {
