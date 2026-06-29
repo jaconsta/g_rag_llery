@@ -12,7 +12,8 @@ use tokio::{signal, sync::broadcast};
 use tonic::transport::Server;
 
 use crate::error::Result;
-use crate::user_auth::UserSessions;
+// use crate::user_auth::UserSessions;
+use crate::user_auth::JwtService;
 
 mod bucket;
 mod config;
@@ -39,7 +40,7 @@ async fn main() -> Result<()> {
     let boxed = Box::new(configs);
     let config_s: &'static config::Config = Box::leak(boxed);
 
-    // Libsodium (Maybe move to builder)
+    // Libsodium init 
     libsodium_rs::ensure_init().expect("Failed to initialize libsodium.");
 
     // Shutdown handler
@@ -57,7 +58,7 @@ async fn main() -> Result<()> {
 
     let _ = tokio::join!(
         rocket_task(shutdown_tx.subscribe()),
-        tonic_task(shutdown_rx, &config_s)
+        tonic_task(shutdown_rx, config_s)
     );
 
     Ok(())
@@ -87,20 +88,18 @@ async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static c
     log::info!("gRPC server running on port {}.", config.server().grpc_port());
     let addr = format!("0.0.0.0:{}", config.server().grpc_port()).parse().expect("Failed to parse address");
 
-    let user_session = Arc::new(RwLock::new(UserSessions::new()));
-    // Consideration -> Move the user auth service to rocket. To enable
-    // server-wide auth interceptor.
-    let greeter = user_auth::UserAuthGreeter::new(user_session.clone());
-    let session_middleware = user_auth::SessionValidator::new(user_session);
+    let jwt_service = Arc::new(JwtService::new(config.auth()));
+    let auth_rpc_service = user_auth::UserAuthGreeter::new(jwt_service.clone());
+    let session_middleware = user_auth::SessionValidator::new(jwt_service);
 
-    let db_pool = db_connect(&config.db().url()).await.unwrap();
-    let bucket_client = bucket::local_bucket_storage::BucketLocal::new(&config.bucket()).unwrap();
-    let img_gallery =
+    let db_pool = db_connect(config.db().url()).await.unwrap();
+    let bucket_client = bucket::local_bucket_storage::BucketLocal::new(config.bucket()).unwrap();
+    let img_gallery_rpc_service =
         gallery_view::GalleryService::new(db_pool.clone(), bucket_client, session_middleware);
 
     let grpc_server = Server::builder()
-        .add_service(user_auth::AuthGreeterServer::new(greeter))
-        .add_service(gallery_view::GalleryViewServer::new(img_gallery))
+        .add_service(user_auth::AuthGreeterServer::new(auth_rpc_service))
+        .add_service(gallery_view::GalleryViewServer::new(img_gallery_rpc_service))
         .serve(addr);
 
     tokio::select! {
@@ -111,6 +110,4 @@ async fn tonic_task(mut shutdown_rx: broadcast::Receiver<()>, config: &'static c
             log::warn!("Tonic task. Stop signal comming from system");
         }
     };
-
-    ()
 }

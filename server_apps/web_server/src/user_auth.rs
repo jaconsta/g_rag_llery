@@ -1,16 +1,15 @@
 use std::ops::Add;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use hex::ToHex;
 use libsodium_rs::crypto_box::Nonce;
 use libsodium_rs::{self, SodiumError, crypto_box};
 
-use hex;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use rand::distr::{Alphanumeric, SampleString};
 use serde::{Deserialize, Serialize};
-use tokio::{sync::RwLock, time::Duration};
+use tokio::time::Duration;
 use tonic::{Request, Response, Status};
 
 use twox_hash::XxHash3_64;
@@ -19,19 +18,24 @@ use user_auth_rpc::{
     EmptyRequest, EmptyResponse, ServerPublicKeys, UserAuthResponse, UserPublicAuth,
 };
 
+use crate::config::{Auth, Config};
 use crate::error::Result;
 
 pub mod user_auth_rpc {
-    tonic::include_proto!("user_auth"); // The string specified here must match the proto package name
+    tonic::include_proto!("user_auth"); // The string specified here must match the grpc proto package name
 }
 
 #[derive(Debug)]
 pub struct SessionValidator {
-    sessions: Arc<RwLock<UserSessions>>,
+    jwt_service: Arc<JwtService>
 }
 impl SessionValidator {
-    pub fn new(sessions: Arc<RwLock<UserSessions>>) -> Self {
-        Self { sessions }
+    pub fn new(
+        jwt_service: Arc<JwtService>
+         ) -> Self {
+        Self { 
+            jwt_service,
+        }
     }
 
     pub async fn get_user<T>(&self, r: &Request<T>) -> Result<UserId> {
@@ -40,15 +44,9 @@ impl SessionValidator {
             Err(x) => return Err(x.message().into()),
         };
 
-        let user_id = match self
-            .sessions
-            .read()
-            .await
-            .validate_user_session(token)
-            .await
-        {
-            Some(u) => u,
-            None => return Err("session expired".into()),
+        let user_id = match self.jwt_service.validate_user_session(token).await{
+             Some(u) => u,
+             None => return Err("Invalid token provided".into()),
         };
 
         Ok(user_id)
@@ -57,7 +55,7 @@ impl SessionValidator {
 
 pub struct UserAuthGreeter {
     box_key_pair: crypto_box::KeyPair,
-    sessions: Arc<RwLock<UserSessions>>,
+    jwt_service: Arc<JwtService>,
 }
 
 impl Default for UserAuthGreeter {
@@ -66,15 +64,15 @@ impl Default for UserAuthGreeter {
 
         Self {
             box_key_pair,
-            sessions: Arc::new(RwLock::new(UserSessions::new())),
+            jwt_service: Arc::new(JwtService::new()), 
         }
     }
 }
 
 impl UserAuthGreeter {
-    pub fn new(sessions: Arc<RwLock<UserSessions>>) -> Self {
+    pub fn new(jwt_service: Arc<JwtService>) -> Self {
         Self {
-            sessions,
+            jwt_service,
             ..Default::default()
         }
     }
@@ -130,7 +128,6 @@ impl AuthGreeter for UserAuthGreeter {
     ) -> std::result::Result<Response<UserAuthResponse>, Status> {
         // request is alice
         let alice = request.get_ref();
-        let sessions = self.sessions.clone();
 
         let user_code = match self.decode_message(alice) {
             Ok(user_unique_code) => user_unique_code,
@@ -139,7 +136,7 @@ impl AuthGreeter for UserAuthGreeter {
             }
         };
 
-        match sessions.write().await.generate_new_session(user_code).await {
+        match self.jwt_service.generate_new_session(user_code){
             Ok((token, token_expire)) => Ok(Response::new(UserAuthResponse {
                 status: "OK".to_string(),
                 bearer: token,
@@ -151,21 +148,13 @@ impl AuthGreeter for UserAuthGreeter {
 
     async fn logout(
         &self,
-        request: Request<EmptyRequest>,
+        _request: Request<EmptyRequest>,
     ) -> std::result::Result<Response<EmptyResponse>, Status> {
-        let jwt_token = get_token(&request)?;
-
-        self.sessions
-            .write()
-            .await
-            .from_token_and_pop(jwt_token)
-            .await;
-
         Ok(Response::new(EmptyResponse {}))
     }
 }
 
-pub fn get_token<'a, T>(r: &'a Request<T>) -> std::result::Result<&'a str, Status> {
+pub fn get_token<T>(r: &Request<T>) -> std::result::Result<&str, Status> {
     let jwt_token = r
         .metadata()
         .get("x-authorization")
@@ -184,8 +173,12 @@ struct Claims {
     sub: String,
     // Expiration Datetime in seconds.
     exp: u64,
-    // The key for User session hashmap.
+    // User Id, extracted from the given code.
+    // Easy to see, for higher security, the previous approach for a new user_id key each token
+    // should be considered.
     user_id: String,
+    // The key for User session hashmap.
+    session_id: String,
 }
 
 impl Claims {
@@ -197,18 +190,12 @@ impl Claims {
     }
 }
 
-/// Hash key that points to UserId in the session map.
-/// Note: Try to keep it private.
-type AuthId = u64;
-
 /// The link for the user information.
 /// The user_id stored in db tables.
 pub type UserId = String;
+
 #[derive(Debug)]
-pub struct UserSessions {
-    /// In-memory storage of the user sessions.
-    /// (eventually Valkey when shared session between servers becomes necessary?)
-    user_sessions: Arc<RwLock<HashMap<AuthId, UserId>>>,
+pub struct JwtService { 
     /// Token and session expiry. In minutes.
     ttl_mins: u64,
     /// Signature secret for the jwt.
@@ -217,22 +204,18 @@ pub struct UserSessions {
     hash_seed: u64,
 }
 
-impl UserSessions {
-    pub fn new() -> Self {
-        // Old jwts will be nulled after each reset.
-        let jwt_secret = Alphanumeric.sample_string(&mut rand::rng(), 32);
-
+impl JwtService {
+    pub fn new(auth_config: &Auth) -> Self{
         Self {
-            user_sessions: Arc::new(RwLock::new(HashMap::new())),
-            ttl_mins: 1200,
-            jwt_secret,
-            hash_seed: 0xdead_cafe,
+            ttl_mins: *auth_config.ttl_mins(),
+            jwt_secret: auth_config.jwt_secret().clone(),
+            hash_seed: *auth_config.hash_seed(),
         }
     }
 
-    /// Stores the information in storage and returns JWT
-    pub async fn generate_new_session(
-        &mut self,
+    /// Generates a new JWT
+    pub fn generate_new_session(
+        &self,
         user_true_code: String,
     ) -> Result<(String, Duration)> {
         // The user session id should be unique to prevent traces of it
@@ -247,7 +230,8 @@ impl UserSessions {
             aud: Claims::aud().into(),
             sub: Claims::sub().into(),
             exp: token_exp.as_secs(),
-            user_id: user_session_id.clone(),
+            session_id: user_session_id.clone(),
+            user_id: user_true_code.clone(),
         };
 
         let token = match jsonwebtoken::encode(
@@ -259,44 +243,20 @@ impl UserSessions {
             Err(_) => return Err("Ohh noo".into()),
         };
 
-        // Maybe change the hash function.
-        // Something like Blake3 (fast) or Argon2 (passwords)
-        let hashed = XxHash3_64::oneshot_with_seed(self.hash_seed, user_true_code.as_ref());
-        // This is user_id to store as reference in db
-        // Hex representation.
-        let user_code_hash = format!("{:x}", hashed);
-
-        // Using xxHash3 for hashmap keys.
-        let auth_id = XxHash3_64::oneshot_with_seed(self.hash_seed, user_session_id.as_ref());
-
-        self.set_user(auth_id, user_code_hash.into()).await;
-        self.timeout_pop(auth_id);
-
         Ok((token, token_exp))
     }
 
     /// Takes the JWT. Validate it and extract the user_id
-    /// Currently the user_id is the only "business" information the JWT stores.
     pub async fn validate_user_session(&self, jwt_token: &str) -> Option<UserId> {
-        let auth_id = match self.decode_token(jwt_token) {
+        let claims = match self.decode_token(jwt_token) {
             Some(id) => id,
             None => return None,
         };
 
-        let user_id = self.get_user(&auth_id).await;
-
-        return user_id;
+        Some(claims.user_id)
     }
 
-    pub async fn from_token_and_pop(&mut self, jwt_token: &str) {
-        let auth_id = match self.decode_token(jwt_token) {
-            Some(id) => id,
-            None => return,
-        };
-        self.pop_user(&auth_id).await;
-    }
-
-    fn decode_token(&self, jwt_token: &str) -> Option<AuthId> {
+    fn decode_token(&self, jwt_token: &str) -> Option<Claims> { // AuthId> {
         let mut jwt_validation = Validation::new(jsonwebtoken::Algorithm::HS256);
         jwt_validation.set_audience(&[Claims::aud()]);
         jwt_validation.sub = Some(Claims::sub().to_string());
@@ -311,45 +271,16 @@ impl UserSessions {
             Err(_) => return None,
         };
 
-        // Generate hashMap key.
-        let auth_id =
-            XxHash3_64::oneshot_with_seed(self.hash_seed, token_data.claims.user_id.as_ref());
-
-        auth_id.into()
+        Some(token_data.claims)
     }
 
-    /// Expected usecase: When want to validate the current user session.
-    pub async fn get_user(&self, auth_id: &AuthId) -> Option<UserId> {
-        let sessions = self.user_sessions.read().await;
-        sessions.get(auth_id).cloned()
-    }
-
-    /// Expected usecase: Add a new user session.
-    pub async fn set_user(&mut self, auth_id: AuthId, user_id: UserId) {
-        let mut sessions = self.user_sessions.write().await;
-        sessions.insert(auth_id, user_id);
-    }
-
-    /// Expected usecase: Logout the use.
-    pub async fn pop_user(&mut self, auth_id: &AuthId) {
-        let mut sessions = self.user_sessions.write().await;
-        sessions.remove(auth_id);
-    }
-
-    /// Expected usecase: Logout the user after session expiration.
-    pub fn timeout_pop(&mut self, auth_id: AuthId) {
-        let ttl = self.ttl_mins.clone();
-        let session = self.user_sessions.clone();
-        // Currently there is no cancelation of the timeout.
-        // It is assumed that if `sessions.remove` returns empty
-        // object, it means the user is logged out.
-        let _timer = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_mins(ttl)).await;
-
-            // Not using self.pop_user because of lifetimes issue.
-            let mut sessions = session.write().await;
-            sessions.remove(&auth_id);
-        });
+    fn hash_user_id(self, user_id: UserId)-> String {
+         // Maybe change the hash function.
+         // Something like Blake3 (fast) or Argon2 (passwords)
+         let hashed = XxHash3_64::oneshot_with_seed(self.hash_seed, user_id.as_bytes());
+         // Hex representation.
+         let user_code_hash = format!("{:x}", hashed);
+        user_code_hash
     }
 }
 
@@ -360,7 +291,7 @@ mod tests {
 
     use super::*;
 
-    static RPC_SERVER_URL: &'static str = "http://0.0.0.0:50051";
+    static RPC_SERVER_URL: &str = "http://0.0.0.0:50051";
     // Utility function to convert a hex into public or secret key
     fn hex_to_key<T>(s: &str) -> Result<T>
     where
