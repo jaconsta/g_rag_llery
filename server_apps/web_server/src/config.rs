@@ -89,7 +89,8 @@ pub struct Bucket {
 impl Bucket {
     fn from_env() -> Self {
         Self {
-            filesystem_path: std::env::var("FILESYSTEM_BUCKET").unwrap_or("../www-data/incoming".into()),
+            filesystem_path: std::env::var("FILESYSTEM_BUCKET")
+                .unwrap_or("../www-data/incoming".into()),
             feeder_bucket: std::env::var("BUCKET_FEEDER_NAME").unwrap_or("rag_upload".into()),
             ragged_bucket: std::env::var("BUCKET_RAGGED_NAME").unwrap_or("rag_processed".into()),
         }

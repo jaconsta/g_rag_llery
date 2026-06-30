@@ -95,11 +95,11 @@ pub async fn fetch_llava_description(
       "images": [img_base64]
     });
 
-    let ollava_url = std::env::var("OLLAMA_URL").expect("OLLAMA_API_KEY is missing");
+    let ollama_url = std::env::var("OLLAMA_URL").expect("OLLAMA_URL is missing");
 
     let client = reqwest::Client::new();
     let resp = client
-        .post(ollava_url)
+        .post(ollama_url)
         .json(&body_json)
         .send()
         .await

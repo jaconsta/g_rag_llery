@@ -18,7 +18,7 @@ use user_auth_rpc::{
     EmptyRequest, EmptyResponse, ServerPublicKeys, UserAuthResponse, UserPublicAuth,
 };
 
-use crate::config::{Auth, Config};
+use crate::config::{self, Auth, Config};
 use crate::error::Result;
 
 pub mod user_auth_rpc {
@@ -57,10 +57,11 @@ pub struct UserAuthGreeter {
 impl Default for UserAuthGreeter {
     fn default() -> Self {
         let box_key_pair = crypto_box::KeyPair::generate();
+        let configs = config::Config::default();
 
         Self {
             box_key_pair,
-            jwt_service: Arc::new(JwtService::new()),
+            jwt_service: Arc::new(JwtService::new(configs.auth())),
         }
     }
 }

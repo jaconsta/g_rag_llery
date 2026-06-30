@@ -9,24 +9,24 @@ use uuid::Uuid;
 use crate::errors::BucketOperationsError;
 
 pub mod localfile {
-    use db_storage::filesystem_storage::{
-        //  LocalBlock,
-        buckets::FilesystemBucket,
-    };
-    // Filesystem client access
-    pub fn fs_client() -> FilesystemBucket {
-        let nginx_url = std::env::var("NGINX_BUCKET_URL")
-            .expect("Local filesystem storage {NGINX_BUCKET_URL} is missing.");
+    // use db_storage::filesystem_storage::{
+    //     //  LocalBlock,
+    //     buckets::FilesystemBucket,
+    // };
+    // // Filesystem client access
+    // pub fn fs_client() -> FilesystemBucket {
+    //     let nginx_url = std::env::var("NGINX_BUCKET_URL")
+    //         .expect("Local filesystem storage {NGINX_BUCKET_URL} is missing.");
 
-        let feeder_path = std::env::var("LOCAL_FEED_PATH")
-            .expect("Local filesystem storage {LOCAL_FEED_PATH} is missing.");
-        let ragged_path = std::env::var("LOCAL_RAGGED_PATH")
-            .expect("Local filesystem storage {LOCAL_RAGGED_PATH} is missing.");
-        // let local_fs = LocalBlock::new(base_path);
+    //     let feeder_path = std::env::var("LOCAL_FEED_PATH")
+    //         .expect("Local filesystem storage {LOCAL_FEED_PATH} is missing.");
+    //     let ragged_path = std::env::var("LOCAL_RAGGED_PATH")
+    //         .expect("Local filesystem storage {LOCAL_RAGGED_PATH} is missing.");
+    //     // let local_fs = LocalBlock::new(base_path);
 
-        let fs_bucket = FilesystemBucket::new(Some(feeder_path), Some(ragged_path));
-        fs_bucket
-    }
+    //     let fs_bucket = FilesystemBucket::new(Some("../www-data/incoming".to_string()), Some(ragged_path));
+    //     fs_bucket
+    // }
 }
 pub mod aws {
     use crate::errors::BucketOperationsError;
@@ -183,12 +183,11 @@ pub fn b3_client() -> Client {
     let url: BaseUrl = bucket_url.parse().expect("Minio bucket_url is missing.");
     // url.region = region;
     let credentials = StaticProvider::new(&access_key, &secret_key, None);
-    let client = ClientBuilder::new(url)
+    ClientBuilder::new(url)
         .provider(Some(Box::new(credentials)))
         .ignore_cert_check(ignore_ssl)
         .build()
-        .expect("Failed to create client");
-    client
+        .expect("Failed to create client")
 }
 
 pub async fn upload(

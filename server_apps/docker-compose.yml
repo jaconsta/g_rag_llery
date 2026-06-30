@@ -37,9 +37,9 @@ services:
   ## Third-party dependencies
   db:
     # Note!: Change this for x64 cpus from `arm64` to `amd64` (ie. pg18-amd64)
-    image: docker.io/timescale/timescaledb-ha:pg18-arm64
+    image: docker.io/timescale/timescaledb-ha:pg17-arm64
     ports:
-      - 7654:5432
+      - 5432:5432
     env_file:
       - db.env
     # volumes:
@@ -47,7 +47,7 @@ services:
     networks:
       - gallery_net
   zookeeper:
-    image: docker.io/confluentinc/cp-zookeeper:7.9.7 
+    image: docker.io/confluentinc/cp-zookeeper:7.7.5
     ports:
       - 2181:2181
     environment:
@@ -56,7 +56,7 @@ services:
     networks:
       - gallery_net
   kafka:
-    image: docker.io/confluentinc/cp-kafka:7.9.7
+    image: docker.io/confluentinc/cp-kafka:7.7.5
     ports:
       - 9092:9092
       - 29092:29092

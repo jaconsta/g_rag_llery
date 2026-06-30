@@ -51,7 +51,7 @@ impl UserUpload {
 
     pub async fn get_by_filename(conn: &crate::DbConn, filename: &str) -> Result<Self, QueryError> {
         let user_upload = sqlx::query_as!(UserUpload, r#"
-            SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where filename = $1"#, filename).fetch_one(conn).await.map_err(|e| {log::error!("{e:?}"); QueryError::Query})?;
+            SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where filename = $1"#, filename).fetch_one(conn).await.map_err(|e| {log::error!("{e:?} (Note. RowNotFound it not an error.)"); QueryError::Query})?;
 
         Ok(user_upload)
     }

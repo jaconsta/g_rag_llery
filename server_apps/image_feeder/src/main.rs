@@ -47,6 +47,7 @@ async fn process_new_file(
 
     let i = image_from_bytes(&file_bytes)?;
     let thumbnail_512p = create_thumbnail(&i);
+
     // Generate embeddings from thumbnail image.
     let embeddings = get_img_embeddings(thumbnail_512p.image().clone())?;
 
@@ -56,7 +57,6 @@ async fn process_new_file(
         .image()
         .write_to(&mut Cursor::new(&mut webp_bytes), image::ImageFormat::WebP);
     let thumbnail_name = format!("thumbnail/{}.webp", uuid::Uuid::new_v4());
-
     let up_opts = UploadOpts::new(&thumbnail_name, webp_bytes, bucket_to_upload);
     let _ = fs_bucket.upload(up_opts).await;
 
@@ -104,6 +104,7 @@ async fn generate_image_embeddings(
             let img_str = to_base64(&img_thumbnail);
             fetch_description(&img_str, ImagePrompt::SemiStructured).await?
         }
+        "off" => return Ok(()),
         _ => {
             // Ollama
             let ollama_str = to_llava_base64(&img_thumbnail);

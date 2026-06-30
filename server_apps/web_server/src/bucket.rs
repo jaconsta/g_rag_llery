@@ -96,8 +96,10 @@ pub mod local_bucket_storage {
 
     impl<'a> BucketLocal<'a> {
         pub fn new(config: &'a BucketConfig) -> Result<BucketLocal<'a>> {
-            let client =
-                buckets::FilesystemBucket::new(Some(config.filesystem_path().clone()), Some(config.ragged_bucket().clone()));
+            let client = buckets::FilesystemBucket::new(
+                Some(config.filesystem_path().clone()),
+                Some(config.ragged_bucket().clone()),
+            );
 
             Ok(Self {
                 client,

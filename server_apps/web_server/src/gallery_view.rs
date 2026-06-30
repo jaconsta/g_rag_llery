@@ -8,10 +8,7 @@ use gallery_view_rpc::{
 };
 
 use crate::{
-    bucket::{
-        //  BucketClient,
-        local_bucket_storage,
-    },
+    bucket:: local_bucket_storage,
     gallery_view::{gallery_view_rpc::GalleryImage, model::FileUpload},
     user_auth::SessionValidator,
 };
@@ -42,7 +39,7 @@ pub mod model {
 
     impl<'a> FileUpload<'a> {
         pub fn new(name: &'a str, hash: &'a str, size: i32) -> FileUpload<'a> {
-            return FileUpload { name, hash, size };
+            FileUpload { name, hash, size }
         }
     }
 
@@ -60,9 +57,8 @@ pub mod model {
         pub async fn request_upload(&self, id: UserId, upload: &FileUpload<'_>) -> Result<String> {
             let filename = format!("feeder/{}", upload.name());
             // Check if is duplicated
-            match UserUpload::get_by_filename(&self.conn, &filename).await {
-                Ok(_) => return Err(Box::new(Error::Duplicated)),
-                Err(_) => { /* Assume -> err means empty result */ }
+            if UserUpload::get_by_filename(&self.conn, &filename).await.is_ok() {
+                return Err(Box::new(Error::Duplicated))
             };
 
             // Create the record
@@ -70,10 +66,10 @@ pub mod model {
                 .await?;
 
             // The user only needs the upload url at this point.
-            Ok(self
+            self
                 .bucket
                 .get_upload_signed_url(&filename, Bucket::Feeder)
-                .await?)
+                .await
         }
 
         pub async fn get(&self, id: UserId) -> Result<(Vec<UserPhoto>, i64)> {
@@ -81,18 +77,15 @@ pub mod model {
             let count = UserPhoto::count_photos(&self.conn, &id).await?;
 
             for photo in user_photos.iter_mut() {
-                match photo.thumbnail_path() {
-                    Some(url) => {
-                        match self
-                            .bucket
-                            .get_download_signed_url(url, Bucket::Ragged)
-                            .await
-                        {
-                            Ok(url) => photo.set_signed_url(url),
-                            Err(e) => log::error!("{e:?}"),
-                        };
-                    }
-                    _ => (),
+                if let Some(url) = photo.thumbnail_path() {
+                    match self
+                        .bucket
+                        .get_download_signed_url(url, Bucket::Ragged)
+                        .await
+                    {
+                        Ok(url) => photo.set_signed_url(url),
+                        Err(e) => log::error!("{e:?}"),
+                    };
                 };
             }
 
@@ -103,7 +96,7 @@ pub mod model {
             &self,
             id: UserId,
         ) -> Result<db_storage::models::user_photos::FilterableProperties> {
-            Ok(FilterableProperties::get_for_user(&self.conn, id.into()).await?)
+            Ok(FilterableProperties::get_for_user(&self.conn, id).await?)
         }
     }
 }
