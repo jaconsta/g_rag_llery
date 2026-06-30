@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 pub type QueryResult<T> = Result<T, QueryError>;
-pub type StorageResult<T> = Result<T, BucketError>;
+// pub type StorageResult<T> = Result<T, BucketError>;
 
 #[derive(Error, Debug)]
 pub enum DbError {
@@ -17,12 +17,19 @@ pub enum DbError {
 pub enum QueryError {
     #[error("Failed to run query")]
     Query,
+    #[error("Not an error")]
+    NotAnError,
 }
 
 impl From<sqlx::Error> for QueryError {
     fn from(value: sqlx::Error) -> Self {
-        log::error!("Failed to run query, {:?}", value);
-        QueryError::Query
+        match value {
+            sqlx::Error::RowNotFound => QueryError::NotAnError,
+            err => {
+                log::error!("QueryError: {err:?}");
+                QueryError::Query
+            }
+        }
     }
 }
 

@@ -63,8 +63,11 @@ impl Auth {
             16,
         ) {
             Ok(seed) => seed,
-            Err(_) => {
-                println!("AUTH_HASH_SEED accepts only hexadecimal numbers. ie: 0x1234_cdef");
+            Err(e) => {
+                println!(
+                    "AUTH_HASH_SEED accepts only hexadecimal numbers. ie: 1234cdef. Detail: {:?}",
+                    e
+                );
                 hash_seed_default
             }
         };

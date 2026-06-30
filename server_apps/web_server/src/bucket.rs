@@ -6,6 +6,7 @@
 // use crate::config::Bucket as BucketConfig;
 use crate::error::Result;
 
+#[derive(Debug, Clone, Copy)]
 pub enum Bucket {
     Feeder,
     Ragged,
@@ -91,7 +92,7 @@ pub mod local_bucket_storage {
     pub struct BucketLocal<'a> {
         client: buckets::FilesystemBucket,
         buckets: super::Buckets<'a>,
-        expiry_url_secs: u32,
+        // expiry_url_secs: u32,
     }
 
     impl<'a> BucketLocal<'a> {
@@ -107,7 +108,7 @@ pub mod local_bucket_storage {
                     feeder: config.feeder_bucket(),
                     ragged: config.ragged_bucket(),
                 },
-                expiry_url_secs: 300,
+                // expiry_url_secs: 300,
             })
         }
 

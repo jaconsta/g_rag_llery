@@ -43,7 +43,13 @@ async fn process_new_file(
 
     // Find the user owner of this image
     // If the upload record is not found in db. Block the process.
-    let mut user_info = UserUpload::get_by_filename(db_pool, &msg.filename).await?;
+    let mut source_image_info = match UserUpload::get_by_filename(db_pool, &msg.filename).await {
+        Ok(i) => i,
+        Err(_) => {
+            log::warn!("process_new_file {} notFound.", &msg.filename);
+            return Ok(());
+        }
+    };
 
     let i = image_from_bytes(&file_bytes)?;
     let thumbnail_512p = create_thumbnail(&i);
@@ -62,7 +68,9 @@ async fn process_new_file(
 
     // Create db records
     let mut img_gallery = Gallery::new(&msg.filename).create(db_pool).await?;
-    user_info.set_gallery_id(db_pool, img_gallery.id()).await?;
+    source_image_info
+        .set_gallery_id(db_pool, img_gallery.id())
+        .await?;
 
     let mut img_embeddings = GalleryEmbeddings::new(thumbnail_name.clone(), embeddings);
     img_embeddings.create(db_pool).await?;
@@ -214,9 +222,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                          panic!();
                     }
                 };
-                log::info!("msg {:?}", msg);
+                // log::info!("msg {:?}", msg);
 
-                process_new_file(msg, &bucket_to_upload, &db_pool, genai_tx.clone()).await?;
+                match process_new_file(msg, &bucket_to_upload, &db_pool, genai_tx.clone()).await{
+                    Ok(_) => (),
+                    Err(e) => log::error!("{e:?}"),
+                };
             },
             Some(msg) = genai_rx.recv() => {
                 generate_image_embeddings(msg, &llm_to_use, &db_pool).await?;

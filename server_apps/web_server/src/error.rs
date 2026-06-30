@@ -11,6 +11,7 @@ pub enum Error {
     AuthError,
     DbError,
     Duplicated,
+    MissingExtension,
 }
 
 impl std::fmt::Display for Error {
@@ -19,6 +20,7 @@ impl std::fmt::Display for Error {
             Error::AuthError => write!(f, "Error during user auth process."),
             Error::DbError => write!(f, "Error during db operation."),
             Error::Duplicated => write!(f, "Error the requested information is duplicated."),
+            Error::MissingExtension => write!(f, "Error the filename has no extension."),
             Error::Custom(e) => write!(f, "Error {}.", e),
         }
     }

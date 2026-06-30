@@ -1,4 +1,3 @@
-use db_storage::filesystem_storage::buckets;
 use tonic::{Request, Response, Status};
 
 pub use gallery_view_rpc::gallery_view_server::{GalleryView, GalleryViewServer};
@@ -8,7 +7,7 @@ use gallery_view_rpc::{
 };
 
 use crate::{
-    bucket:: local_bucket_storage,
+    bucket::local_bucket_storage,
     gallery_view::{gallery_view_rpc::GalleryImage, model::FileUpload},
     user_auth::SessionValidator,
 };
@@ -18,6 +17,8 @@ pub mod gallery_view_rpc {
 }
 
 pub mod model {
+    use std::path::Path;
+
     use db_storage::models::{
         UserUpload,
         user_photos::{FilterableProperties, UserPhoto},
@@ -45,8 +46,7 @@ pub mod model {
 
     pub struct UserGallery<'a> {
         conn: db_storage::DbConn,
-        bucket: local_bucket_storage::BucketLocal<'a>, // BucketClient<'a>, // Should use BucketOperations from db_storage::filesystem_storage
-                                                       // or BucketClientOperations from crate::bucket
+        bucket: local_bucket_storage::BucketLocal<'a>,
     }
 
     impl<'a> UserGallery<'a> {
@@ -54,20 +54,42 @@ pub mod model {
             Self { conn: db, bucket }
         }
 
-        pub async fn request_upload(&self, id: UserId, upload: &FileUpload<'_>) -> Result<String> {
-            let filename = format!("feeder/{}", upload.name());
+        pub async fn request_upload(
+            &self,
+            user_id: UserId,
+            upload: &FileUpload<'_>,
+        ) -> Result<String> {
+            let filename_uid = uuid::Uuid::new_v4().to_string();
+            let file_extension = match Path::new(upload.name()).extension() {
+                Some(e) => e,
+                None => return Err(Box::new(Error::MissingExtension)),
+            };
+            let filename = format!(
+                "feeder/{}.{}",
+                filename_uid,
+                file_extension.to_str().unwrap_or("None")
+            );
             // Check if is duplicated
-            if UserUpload::get_by_filename(&self.conn, &filename).await.is_ok() {
-                return Err(Box::new(Error::Duplicated))
+            if UserUpload::get_by_original_filename(&self.conn, upload.name())
+                .await
+                .is_ok()
+            {
+                return Err(Box::new(Error::Duplicated));
             };
 
             // Create the record
-            UserUpload::new_for_upload(&self.conn, &filename, *upload.size(), upload.hash(), &id)
-                .await?;
+            UserUpload::new_for_upload(
+                &self.conn,
+                &filename,
+                *upload.size(),
+                upload.hash(),
+                upload.name(),
+                &user_id,
+            )
+            .await?;
 
             // The user only needs the upload url at this point.
-            self
-                .bucket
+            self.bucket
                 .get_upload_signed_url(&filename, Bucket::Feeder)
                 .await
         }
@@ -122,15 +144,14 @@ impl From<Vec<db_storage::models::user_photos::UserPhoto>> for GalleryImagesResp
 #[derive(Debug)]
 pub struct GalleryService<'a> {
     conn: db_storage::DbConn,
-    bucket: local_bucket_storage::BucketLocal<'a>, // BucketClient<'a>,
+    bucket: local_bucket_storage::BucketLocal<'a>,
     session_middleware: SessionValidator,
 }
 
 impl<'a> GalleryService<'a> {
     pub fn new(
         conn: db_storage::DbConn,
-        bucket: local_bucket_storage::BucketLocal<'a>, // BucketClient<'a>, // Should use the BucketOperations trait from
-        // db_storage::filesystem_storage.
+        bucket: local_bucket_storage::BucketLocal<'a>, // Should use the BucketOperations trait from
         session_middleware: SessionValidator,
     ) -> GalleryService<'a> {
         Self {
@@ -142,7 +163,7 @@ impl<'a> GalleryService<'a> {
 }
 
 #[tonic::async_trait]
-impl<'a> GalleryView for GalleryService<'static> {
+impl GalleryView for GalleryService<'static> {
     async fn upload_image(
         &self,
         request: Request<UploadImageRequest>,

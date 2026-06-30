@@ -72,7 +72,7 @@ impl LocalBlock {
     pub async fn move_file(&self, filename: &str, into_file: &str) -> Result<(), BucketError> {
         let from_path = Path::new(&self.base_path).join("rag-upload").join(filename);
         let into_path = Path::new(&self.base_path).join(into_file);
-                                                                    
+
         self.create_folder_if_missing(&into_path).await?;
 
         Ok(fs::rename(from_path, into_path).await?)
@@ -118,6 +118,7 @@ pub mod buckets {
         }
     }
 
+    #[derive(Debug)]
     pub struct UploadSignedUrlOpts<'a> {
         filename: &'a str,
         bucket: &'a str,
@@ -174,15 +175,16 @@ pub mod buckets {
 
         /// Move the file into a the ragged bucket, returns the destination path.
         pub async fn move_to_ragged(&self, filename: &str) -> Result<String, BucketError> {
-            if let Some(into_bucket) = &self.ragged_path {
-                let into_path_file = self.build_path(into_bucket, filename)?;
+            let into_path_file = match &self.ragged_path {
+                Some(into_bucket) => self.build_path(into_bucket, filename)?,
+                None => {
+                    println!("Move_to_ragged. there id no into_bucket");
+                    return Err(BucketError::Str);
+                }
+            };
 
-                let _ = self.bucket.move_file(filename, &into_path_file).await;
-                Ok(into_path_file)
-            } else {
-                println!("Move_to_ragged. there id no into_bucket");
-                Err(BucketError::Str)
-            }
+            let _ = self.bucket.move_file(filename, &into_path_file).await;
+            Ok(into_path_file)
         }
 
         // Reference for a local nginx that serves as the a party storage service.
@@ -191,7 +193,8 @@ pub mod buckets {
             opts: UploadSignedUrlOpts<'_>,
         ) -> Result<String, BucketError> {
             let into_path = self.build_path(opts.bucket, opts.filename)?;
-            let nginx_url =  std::env::var("NGINX_BUCKET_URL").unwrap_or("http://localhost:5174/upload/".into());
+            let nginx_url =
+                std::env::var("NGINX_BUCKET_URL").unwrap_or("http://localhost:5174/upload/".into());
             Ok(format!("{nginx_url}{into_path}"))
         }
 

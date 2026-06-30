@@ -22,14 +22,15 @@ impl UserUpload {
         filename: &str,
         filesize: i32,
         filehash: &str,
+        original_filename: &str,
         user_id: &str,
     ) -> Result<UserUpload, QueryError> {
         let user_upload = sqlx::query_as!(
             UserUpload,
             r#"
         with inserted_upload as (
-            insert into user_upload (filename, filesize, filehash, user_id)
-            values ($1, $2, $3, $4)
+            insert into user_upload (filename, filesize, filehash, original_filename, user_id)
+            values ($1, $2, $3, $4, $5)
             returning id, filename, filesize, filehash, user_id, gallery_id
         )
             SELECT id, filename, filesize, filehash, user_id, gallery_id 
@@ -37,21 +38,27 @@ impl UserUpload {
             filename,
             filesize,
             filehash,
+            original_filename,
             user_id
         )
         .fetch_one(conn)
-        .await
-        .map_err(|e| {
-            log::error!("{e:?}");
-            QueryError::Query
-        })?;
+        .await?;
 
         Ok(user_upload)
     }
 
     pub async fn get_by_filename(conn: &crate::DbConn, filename: &str) -> Result<Self, QueryError> {
         let user_upload = sqlx::query_as!(UserUpload, r#"
-            SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where filename = $1"#, filename).fetch_one(conn).await.map_err(|e| {log::error!("{e:?} (Note. RowNotFound it not an error.)"); QueryError::Query})?;
+            SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where filename = $1"#, filename).fetch_one(conn).await?;
+
+        Ok(user_upload)
+    }
+    pub async fn get_by_original_filename(
+        conn: &crate::DbConn,
+        filename: &str,
+    ) -> Result<Self, QueryError> {
+        let user_upload = sqlx::query_as!(UserUpload, r#"
+            SELECT id, filename, filesize, filehash, user_id, gallery_id from user_upload where original_filename = $1"#, filename).fetch_one(conn).await?;
 
         Ok(user_upload)
     }
@@ -69,13 +76,9 @@ impl UserUpload {
             self.id
         )
         .execute(conn)
-        .await
-        .map_err(|e| {
-            log::error!("{e:?}");
-            QueryError::Query
-        })?;
+        .await?;
 
-        self.gallery_id = Some(gallery_id.clone());
+        self.gallery_id = Some(*gallery_id);
 
         Ok(())
     }
@@ -95,11 +98,7 @@ impl UserUpload {
         let query = query_b.build();
         let user_upload: Vec<UserUpload> = query
             .fetch_all(conn)
-            .await
-            .map_err(|e| {
-                log::error!("{e:?}");
-                QueryError::Query
-            })?
+            .await?
             .iter()
             .map(|row| row.into())
             .collect();
